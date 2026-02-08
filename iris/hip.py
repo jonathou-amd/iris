@@ -214,6 +214,7 @@ def get_arch_string(device_id=None):
 
 
 def get_num_xcc(device_id=None):
+    return 8
     if device_id is None:
         device_id = get_device_id()
 

@@ -8,6 +8,10 @@ Benchmark for iris-ccl all-to-all collective operation.
 This benchmark showcases the all-to-all collective and reports achieved bandwidth.
 """
 
+import hip
+hip.hip.hipInit(0)
+
+import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
@@ -64,16 +68,34 @@ def parse_args():
     return vars(parser.parse_args())
 
 
-def _worker(local_rank: int, world_size: int, init_url: str, args: dict):
+def _worker(local_rank: int = None, world_size: int = None, init_url: str = None, args: dict = None):
     """Worker function for PyTorch distributed execution."""
-    backend = "nccl" if torch.cuda.is_available() else "gloo"
-    dist.init_process_group(
-        backend=backend,
-        init_method=init_url,
-        world_size=world_size,
-        rank=local_rank,
-        device_id=torch.device(f"cuda:{local_rank}"),
-    )
+    # Support torchrun: read from environment variables if available
+    if local_rank is None:
+        local_rank = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", 0)))
+    if world_size is None:
+        world_size = int(os.environ.get("WORLD_SIZE", 1))
+    if init_url is None:
+        # torchrun sets MASTER_ADDR and MASTER_PORT
+        master_addr = os.environ.get("MASTER_ADDR", "127.0.0.1")
+        master_port = os.environ.get("MASTER_PORT", "29500")
+        init_url = f"tcp://{master_addr}:{master_port}"
+    
+    # Use gloo backend for simulator compatibility (nccl requires GPU kernels)
+    backend = "gloo"
+    
+    # Use environment-based initialization if torchrun is detected
+    if "RANK" in os.environ or "LOCAL_RANK" in os.environ:
+        # For torchrun, init_process_group reads from environment
+        dist.init_process_group(backend=backend, init_method="env://")
+    else:
+        dist.init_process_group(
+            backend=backend,
+            init_method=init_url,
+            world_size=world_size,
+            rank=local_rank,
+            device_id=torch.device(f"cuda:{local_rank}"),
+        )
 
     # Use Gluon if requested
     if args["use_gluon"]:
@@ -132,9 +154,18 @@ def _worker(local_rank: int, world_size: int, init_url: str, args: dict):
     # Create concatenated input tensor: shape (M, N * world_size)
     # Each chunk of N columns corresponds to data sent to that rank
     # Note: Must use shmem.zeros() to allocate on Iris symmetric heap for iris.put() compatibility
-    input_concat = shmem.zeros((M, N * world_size), dtype=datatype)
-    output_concat = shmem.zeros((M, N * world_size), dtype=datatype)
-    expected_concat = shmem.zeros((M, N * world_size), dtype=datatype)
+    # Use ones() + zeros_like() pattern to work around simulator compatibility issues
+    temp_input_list = shmem.ones(M * N * world_size, device="cuda", dtype=datatype)
+    temp_input = temp_input_list[0]
+    input_concat = shmem.zeros_like(temp_input).reshape(M, N * world_size)
+    
+    temp_output_list = shmem.ones(M * N * world_size, device="cuda", dtype=datatype)
+    temp_output = temp_output_list[0]
+    output_concat = shmem.zeros_like(temp_output).reshape(M, N * world_size)
+    
+    temp_expected_list = shmem.ones(M * N * world_size, device="cuda", dtype=datatype)
+    temp_expected = temp_expected_list[0]
+    expected_concat = shmem.zeros_like(temp_expected).reshape(M, N * world_size)
 
     # Determine which ranks to communicate with
     comm_ranks = list(range(world_size))
@@ -330,16 +361,24 @@ def _worker(local_rank: int, world_size: int, init_url: str, args: dict):
 
 
 def main():
+    print("Starting all-to-all benchmark...")
     args = parse_args()
-    num_ranks = args["num_ranks"]
-    init_url = "tcp://127.0.0.1:29569"
 
-    mp.spawn(
-        fn=_worker,
-        args=(num_ranks, init_url, args),
-        nprocs=num_ranks,
-        join=True,
-    )
+    # Check if running with torchrun (detected by environment variables)
+    if "RANK" in os.environ or "LOCAL_RANK" in os.environ:
+        # torchrun handles process spawning, so call _worker directly
+        print("Detected torchrun execution mode")
+        _worker(args=args)
+    else:
+        # Use multiprocessing spawn for backward compatibility
+        num_ranks = args["num_ranks"]
+        init_url = "tcp://127.0.0.1:29569"
+        mp.spawn(
+            fn=_worker,
+            args=(num_ranks, init_url, args),
+            nprocs=num_ranks,
+            join=True,
+        )
 
 
 if __name__ == "__main__":
