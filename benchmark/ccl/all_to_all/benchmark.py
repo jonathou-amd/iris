@@ -60,6 +60,13 @@ def parse_args():
     parser.add_argument("-r", "--num_ranks", type=int, default=8, help="Number of ranks/processes")
     parser.add_argument("--use_gluon", action="store_true", help="Use Gluon implementation with traffic shaping")
     parser.add_argument(
+        "--cache_modifier",
+        type=str,
+        default="",
+        choices=["", ".wt", ".cs"],
+        help="Cache modifier for store operations: '' (normal caching) or '.wt' (write-through, default)",
+    )
+    parser.add_argument(
         "--benchmark_rccl",
         action="store_true",
         help="Also benchmark PyTorch RCCL (all_to_all) for comparison",
@@ -122,7 +129,7 @@ def _worker(local_rank: int = None, world_size: int = None, init_url: str = None
     N = args["n"]
 
     # Create config with optional block size parameters
-    config_kwargs = {"comm_sms": args["comm_sms"]}
+    config_kwargs = {"comm_sms": args["comm_sms"], "cache_modifier": args["cache_modifier"]}
     if args["block_size_m"] is not None:
         config_kwargs["block_size_m"] = args["block_size_m"]
     if args["block_size_n"] is not None:
@@ -148,6 +155,7 @@ def _worker(local_rank: int = None, world_size: int = None, init_url: str = None
     json_writer.add_field("swizzle_size", config.swizzle_size)
     json_writer.add_field("num_xcds", config.num_xcds)
     json_writer.add_field("use_gluon", config.use_gluon)
+    json_writer.add_field("cache_modifier", config.cache_modifier)
 
     # Create input and output tensor lists for all-to-all
     # Each rank sends a different tensor to each rank

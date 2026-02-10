@@ -40,6 +40,9 @@ class Config:
                                  (default: auto-set to block_size_n // world_size at runtime)
         reduce_scatter_variant: Variant for reduce-scatter operation (default: "two_shot")
                                 Only "two_shot" is supported
+        cache_modifier: Cache modifier for store operations (default: ".wt")
+                       Options: "" (normal caching), ".wt" (write-through, bypasses L2 cache)
+                       Write-through can improve performance for remote stores by avoiding cache pollution
 
     Example:
         >>> import iris
@@ -71,6 +74,7 @@ class Config:
     all_reduce_num_rings: int = 1
     all_reduce_ring_slice_n: int | None = None
     reduce_scatter_variant: str = "two_shot"
+    cache_modifier: str = ""
 
     def __post_init__(self):
         """Validate and auto-detect num_xcds if not set."""

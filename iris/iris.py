@@ -1774,7 +1774,7 @@ def load(pointer, to_rank, from_rank, heap_bases, mask=None):
 
 
 @triton.jit
-def store(pointer, value, from_rank, to_rank, heap_bases, mask=None):
+def store(pointer, value, from_rank, to_rank, heap_bases, mask=None, cache_modifier: tl.constexpr = ""):
     """
     Writes data to the specified rank's memory location.
 
@@ -1790,6 +1790,10 @@ def store(pointer, value, from_rank, to_rank, heap_bases, mask=None):
         to_rank (int): The rank ID to which the data will be written.
         heap_bases (triton.PointerType): Array containing the heap base addresses for all ranks.
         mask (Block of triton.int1, optional): If mask[idx] is false, do not store the data at address pointer[idx]. Defaults to None.
+        cache_modifier (tl.constexpr, optional): Cache modifier for the store operation. Must be a compile-time constant. Common values:
+            - "" (default): Normal caching behavior
+            - ".wt": Write-through, bypasses L2 cache (non-cacheable)
+            Defaults to "".
 
     Returns:
         None
@@ -1797,14 +1801,14 @@ def store(pointer, value, from_rank, to_rank, heap_bases, mask=None):
     Example:
         >>> @triton.jit
         >>> def kernel(ptr, heap_bases):
-        >>>     # Store value 42 into rank 1's heap from rank 0
+        >>>     # Store value 42 into rank 1's heap from rank 0 with write-through
         >>>     cur_rank = 0      # Current rank (source)
         >>>     remote_rank = 1   # Remote rank (destination)
         >>>     value = 42
-        >>>     iris.store(ptr, value, cur_rank, remote_rank, heap_bases)
+        >>>     iris.store(ptr, value, cur_rank, remote_rank, heap_bases, cache_modifier=".wt")
     """
     translated_ptr = __translate(pointer, from_rank, to_rank, heap_bases)
-    tl.store(translated_ptr, value, mask=mask)
+    tl.store(translated_ptr, value, mask=mask, cache_modifier=cache_modifier)
 
 
 @triton.jit

@@ -42,6 +42,7 @@ def persistent_all_to_all(
     COMM_SMS: tl.constexpr,
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Persistent all-to-all kernel.
@@ -118,7 +119,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local)
-            tl.store(output_ptr_local, data, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, cache_modifier=CACHE_MODIFIER)
 
             # Process all remote ranks
             for target_rank in range(world_size):
@@ -137,6 +138,7 @@ def persistent_all_to_all(
                         cur_rank,
                         target_rank,
                         heap_bases,
+                        cache_modifier=CACHE_MODIFIER,
                     )
 
         # Slow path: MASKED (only boundary tiles land here)
@@ -153,7 +155,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local, mask=mask)
-            tl.store(output_ptr_local, data, mask=mask, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, mask=mask, cache_modifier=CACHE_MODIFIER)
 
             # Process all remote ranks
             for target_rank in range(world_size):
@@ -173,6 +175,7 @@ def persistent_all_to_all(
                         target_rank,
                         heap_bases,
                         mask=mask,
+                        cache_modifier=CACHE_MODIFIER,
                     )
 
 
@@ -392,6 +395,7 @@ def all_to_all(output_tensor, input_tensor, shmem, config=None, async_op=False):
             config.comm_sms,
             config.num_xcds,
             config.chunk_size,
+            config.cache_modifier,
         )
 
     if not async_op:
