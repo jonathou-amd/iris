@@ -31,6 +31,7 @@ def persistent_all_gather(
     COMM_SMS: tl.constexpr,
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Persistent all-gather kernel.
@@ -119,7 +120,7 @@ def persistent_all_gather(
 
             if rank == cur_rank:
                 # Local destination: use direct store
-                tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=".wt")
+                tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
             else:
                 # Remote destination: use iris.store to send data to remote destination
                 iris.store(
@@ -129,6 +130,7 @@ def persistent_all_gather(
                     rank,
                     heap_bases,
                     mask=combined_mask,
+                        cache_modifier=CACHE_MODIFIER,
                 )
 
 
@@ -200,6 +202,7 @@ def all_gather(output_tensor, input_tensor, shmem, config=None, async_op=False):
         config.comm_sms,
         config.num_xcds,
         config.chunk_size,
+        config.cache_modifier,
     )
 
     if not async_op:
