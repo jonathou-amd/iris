@@ -71,9 +71,6 @@ def parse_args():
         choices=["", ".wt", ".cs"],
         help="Cache modifier for store operations: '' (normal caching) or '.wt' (write-through, default)",
     )
-    parser.add_argument("--num_stages", type=int, default=1, help="Number of stages")
-    parser.add_argument("--num_warps", type=int, default=4, help="Number of warps")
-    parser.add_argument("--waves_per_eu", type=int, default=0, help="Number of waves per EU")
 
     return vars(parser.parse_args())
 
@@ -132,12 +129,7 @@ def _worker(local_rank: int = None, world_size: int = None, init_url: str = None
     N = args["n"]
 
     # Create config with optional block size parameters
-    config_kwargs = {"comm_sms": args["comm_sms"], 
-                     "cache_modifier": args["cache_modifier"], 
-                     "num_stages": args["num_stages"], 
-                     "num_warps": args["num_warps"], 
-                     "waves_per_eu": args["waves_per_eu"]
-                    }
+    config_kwargs = {"comm_sms": args["comm_sms"], "cache_modifier": args["cache_modifier"]}
     if args["block_size_m"] is not None:
         config_kwargs["block_size_m"] = args["block_size_m"]
     if args["block_size_n"] is not None:
@@ -164,9 +156,6 @@ def _worker(local_rank: int = None, world_size: int = None, init_url: str = None
     json_writer.add_field("num_xcds", config.num_xcds)
     json_writer.add_field("use_gluon", config.use_gluon)
     json_writer.add_field("cache_modifier", config.cache_modifier)
-    json_writer.add_field("num_stages", config.num_stages)
-    json_writer.add_field("num_warps", config.num_warps)
-    json_writer.add_field("waves_per_eu", config.waves_per_eu)
 
     # Create input and output tensors for all-gather
     # Input: each rank has (M, N) tensor
@@ -211,7 +200,7 @@ def _worker(local_rank: int = None, world_size: int = None, init_url: str = None
         torch.cuda.nvtx.range_push("All-Gather")
         with torch.cuda.stream(comm_stream):
             kernel_timing["all_gather"]["start_event"].record()
-            shmem.ccl.all_gather(output_tensor, input_tensor, config=config, async_op=False)
+            shmem.ccl.all_gather_inline(output_tensor, input_tensor, config=config, async_op=False)
             kernel_timing["all_gather"]["end_event"].record()
             kernel_timing["all_gather"]["experiments"] += 1
         torch.cuda.nvtx.range_pop()

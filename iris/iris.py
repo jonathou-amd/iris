@@ -1611,6 +1611,39 @@ class Iris:
 
             _all_gather(output_tensor, input_tensor, self._iris, config=config, async_op=async_op)
 
+        def all_gather_inline(self, output_tensor, input_tensor, config=None, async_op=False):
+            """
+            All-gather collective operation.
+
+            Each rank sends its input tensor to all ranks, and all ranks receive
+            and concatenate all input tensors along dimension 0 (rows), matching
+            torch.distributed.all_gather_into_tensor behavior.
+
+            Args:
+                output_tensor: Output tensor of shape (world_size * M, N) - will contain concatenated inputs
+                input_tensor: Input tensor of shape (M, N) - local rank's data to send
+                config: Config instance with kernel parameters (default: None).
+                        If None, uses default Config values.
+                async_op: If False, performs a barrier at the end. If True, returns immediately.
+                          Default: False.
+
+            Example:
+                >>> shmem = iris.iris()
+                >>> # Input: (M, N), Output: (world_size * M, N)
+                >>> shmem.ccl.all_gather(output_tensor, input_tensor)
+
+                >>> # Custom configuration
+                >>> from iris.ccl import Config
+                >>> config = Config(block_size_m=128, block_size_n=32)
+                >>> shmem.ccl.all_gather(output_tensor, input_tensor, config=config)
+
+                >>> # Async operation (no barrier)
+                >>> shmem.ccl.all_gather(output_tensor, input_tensor, async_op=True)
+            """
+            from iris.ccl.all_gather_inline import all_gather_inline as _all_gather_inline
+
+            _all_gather_inline(output_tensor, input_tensor, self._iris, config=config, async_op=async_op)
+
         def all_reduce_preamble(self, output_tensor, input_tensor, config=None, workspace=None):
             """
             Prepare reusable workspace for all-reduce.

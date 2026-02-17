@@ -8,12 +8,27 @@ Gathers tensors from all ranks and concatenates them along the last dimension.
 
 import triton
 import triton.language as tl
-import iris
 from .config import Config
+
+# Number of ranks we hoist heap bases for (fixed for SGPR-friendly codegen)
+_NUM_RANKS_HOISTED: int = 8
+
+
+@triton.jit
+def _translate_with_bases(ptr, from_base, to_base):
+    """Translate pointer from one heap base to another (same math as iris.__translate)."""
+    ptr_int = tl.cast(ptr, tl.uint64)
+    offset = ptr_int - from_base
+    to_base_byte = tl.cast(to_base, tl.pointer_type(tl.int8))
+    translated_ptr_byte = to_base_byte + offset
+    translated_ptr = tl.cast(translated_ptr_byte, ptr.dtype)
+    translated_ptr = tl.multiple_of(translated_ptr, (32, 32))
+    translated_ptr = tl.max_contiguous(translated_ptr, (1, 32))
+    return translated_ptr
 
 
 @triton.jit()
-def persistent_all_gather(
+def persistent_all_gather_inline(
     input_ptr,
     output_ptr,
     M,
@@ -35,11 +50,9 @@ def persistent_all_gather(
 ):
     """
     Persistent all-gather kernel.
-
     Each rank sends its input tensor to all ranks, and all ranks receive
     and concatenate all input tensors along dimension 0 (rows), matching
     torch.distributed.all_gather_into_tensor behavior.
-
     Args:
         input_ptr: Pointer to input tensor (local rank's data to send) of shape (M, N)
         output_ptr: Pointer to output tensor (will receive from all ranks) of shape (world_size * M, N)
@@ -56,14 +69,38 @@ def persistent_all_gather(
         NUM_XCDS: Number of XCDs
         CHUNK_SIZE: Chunk size for chiplet transform
     """
-    pid = tl.program_id(0) 
-    # rank = pid
+    pid = tl.program_id(0)
+
+    # Hoist heap bases for all ranks into SGPRs (one s_load_dwordx16-style load)
+    heap_base_r0 = tl.load(heap_bases + 0)
+    heap_base_r1 = tl.load(heap_bases + 1)
+    heap_base_r2 = tl.load(heap_bases + 2)
+    heap_base_r3 = tl.load(heap_bases + 3)
+    heap_base_r4 = tl.load(heap_bases + 4)
+    heap_base_r5 = tl.load(heap_bases + 5)
+    heap_base_r6 = tl.load(heap_bases + 6)
+    heap_base_r7 = tl.load(heap_bases + 7)
+    my_base = heap_base_r0
+    if cur_rank == 1:
+        my_base = heap_base_r1
+    if cur_rank == 2:
+        my_base = heap_base_r2
+    if cur_rank == 3:
+        my_base = heap_base_r3
+    if cur_rank == 4:
+        my_base = heap_base_r4
+    if cur_rank == 5:
+        my_base = heap_base_r5
+    if cur_rank == 6:
+        my_base = heap_base_r6
+    if cur_rank == 7:
+        my_base = heap_base_r7
 
     num_pid_m = tl.cdiv(M, BLOCK_SIZE_M)
     num_pid_n = tl.cdiv(N, BLOCK_SIZE_N)
     total_tiles = num_pid_m * num_pid_n
     tl.assume(total_tiles > 0)
-    for tile_id in range(pid, total_tiles, COMM_SMS):  # 0, total_tiles
+    for tile_id in range(pid, total_tiles, COMM_SMS):
         num_pid_in_group = GROUP_SIZE_M * num_pid_n
         group_id = tile_id // num_pid_in_group
         first_pid_m = group_id * GROUP_SIZE_M
@@ -100,53 +137,45 @@ def persistent_all_gather(
         # Load local input data once for this tile
         data = tl.load(input_ptr_source, mask=input_mask, other=0.0)
 
-        # Send local shard data to all destination ranks
+        # Send local shard data to all destination ranks via translated pointers (no rank branch)
         # Each rank's input goes to output[cur_rank * M : (cur_rank + 1) * M, :] on all ranks
-        for rank in tl.static_range(world_size):
-            # Compute global output row indices: offset by cur_rank * M
-            rm_output = rm_input + cur_rank * M
+        rm_output = rm_input + cur_rank * M
+        output_mask = (rm_output[:, None] < (cur_rank + 1) * M) & (rn[None, :] < N)
+        combined_mask = input_mask & output_mask
+        output_base_m = rm_output[:, None] * stride_out_m
+        output_base_n = rn[None, :] * stride_out_n
+        output_offset = output_base_m + output_base_n
+        output_ptr_target = output_ptr + output_offset
+        output_ptr_target = tl.multiple_of(output_ptr_target, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
-            # Output mask: only write where input was valid
-            output_mask = (rm_output[:, None] < (cur_rank + 1) * M) & (rn[None, :] < N)
+        dest_0 = _translate_with_bases(output_ptr_target, my_base, heap_base_r0)
+        dest_1 = _translate_with_bases(output_ptr_target, my_base, heap_base_r1)
+        dest_2 = _translate_with_bases(output_ptr_target, my_base, heap_base_r2)
+        dest_3 = _translate_with_bases(output_ptr_target, my_base, heap_base_r3)
+        dest_4 = _translate_with_bases(output_ptr_target, my_base, heap_base_r4)
+        dest_5 = _translate_with_bases(output_ptr_target, my_base, heap_base_r5)
+        dest_6 = _translate_with_bases(output_ptr_target, my_base, heap_base_r6)
+        dest_7 = _translate_with_bases(output_ptr_target, my_base, heap_base_r7)
 
-            # Combine masks: must be valid in both input and output
-            combined_mask = input_mask & output_mask
-
-            # Compute output offset
-            output_base_m = rm_output[:, None] * stride_out_m
-            output_base_n = rn[None, :] * stride_out_n
-            output_offset = output_base_m + output_base_n
-            output_ptr_target = output_ptr + output_offset
-            output_ptr_target = tl.multiple_of(output_ptr_target, (BLOCK_SIZE_M, BLOCK_SIZE_N))
-
-            if rank == cur_rank:
-                # Local destination: use direct store
-                tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
-            else:
-                # Remote destination: use iris.store to send data to remote destination
-                iris.store(
-                    output_ptr_target,
-                    data,
-                    cur_rank,
-                    rank,
-                    heap_bases,
-                    mask=combined_mask,
-                    cache_modifier=CACHE_MODIFIER,
-                )
+        tl.store(dest_0, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_1, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_2, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_3, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_4, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_5, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_6, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
+        tl.store(dest_7, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
 
 
-def all_gather(output_tensor, input_tensor, shmem, config=None, async_op=False):
+def all_gather_inline(output_tensor, input_tensor, shmem, config=None, async_op=False):
     """
     Internal all-gather collective operation implementation.
-
     This function is called internally by shmem.ccl.all_gather().
     Users should use the Iris instance method instead:
         >>> shmem.ccl.all_gather(output_tensor, input_tensor)
-
     Each rank sends its input tensor to all ranks, and all ranks receive
     and concatenate all input tensors along dimension 0 (rows), matching
     torch.distributed.all_gather_into_tensor behavior.
-
     Args:
         output_tensor: Output tensor of shape (world_size * M, N) - will contain concatenated inputs
         input_tensor: Input tensor of shape (M, N) - local rank's data to send
@@ -170,6 +199,11 @@ def all_gather(output_tensor, input_tensor, shmem, config=None, async_op=False):
 
     rank = shmem.get_rank()
     world_size = shmem.get_num_ranks()
+    if world_size != _NUM_RANKS_HOISTED:
+        raise ValueError(
+            f"all_gather currently requires world_size == {_NUM_RANKS_HOISTED} (got {world_size}). "
+            "Use a build with the dynamic rank loop for other world sizes."
+        )
 
     M, N = input_tensor.shape[:2]
     expected_output_shape = (world_size * M, N)
@@ -185,7 +219,7 @@ def all_gather(output_tensor, input_tensor, shmem, config=None, async_op=False):
 
     heap_bases = shmem.get_heap_bases()
 
-    persistent_all_gather[(config.comm_sms,)](
+    persistent_all_gather_inline[(config.comm_sms,)](
         input_tensor,
         output_tensor,
         M,
@@ -204,9 +238,6 @@ def all_gather(output_tensor, input_tensor, shmem, config=None, async_op=False):
         config.num_xcds,
         config.chunk_size,
         config.cache_modifier,
-        num_stages=config.num_stages,
-        num_warps=config.num_warps,
-        waves_per_eu=config.waves_per_eu,
     )
 
     if not async_op:
