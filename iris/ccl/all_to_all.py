@@ -396,6 +396,9 @@ def all_to_all(output_tensor, input_tensor, shmem, config=None, async_op=False):
             config.num_xcds,
             config.chunk_size,
             config.cache_modifier,
+            num_stages=config.num_stages,
+            num_warps=config.num_warps,
+            waves_per_eu=config.waves_per_eu,
         )
 
     if not async_op:
