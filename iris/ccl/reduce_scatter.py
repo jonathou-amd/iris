@@ -33,6 +33,7 @@ def persistent_reduce_scatter_two_shot(
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
     DISTRIBUTION: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Reduce-scatter using two-shot approach.
@@ -110,7 +111,7 @@ def persistent_reduce_scatter_two_shot(
             reduced = acc.to(output_ptr.type.element_ty)
 
             # Store only to own rank (no broadcast)
-            tl.store(out_ptr, reduced, cache_modifier=".wt")
+            tl.store(out_ptr, reduced, cache_modifier=CACHE_MODIFIER)
 
         # Slow path: MASKED (only boundary tiles land here)
         # This path handles tiles at tensor boundaries where not all elements are valid.
@@ -126,7 +127,7 @@ def persistent_reduce_scatter_two_shot(
             reduced = acc.to(output_ptr.type.element_ty)
 
             # Store only to own rank (no broadcast)
-            tl.store(out_ptr, reduced, mask=mask, cache_modifier=".wt")
+            tl.store(out_ptr, reduced, mask=mask, cache_modifier=CACHE_MODIFIER)
 
 
 def reduce_scatter(output_tensor, input_tensor, shmem, config=None, async_op=False):
@@ -217,6 +218,10 @@ def reduce_scatter(output_tensor, input_tensor, shmem, config=None, async_op=Fal
         config.num_xcds,
         config.chunk_size,
         distribution,
+        config.cache_modifier,
+        num_stages=config.num_stages,
+        num_warps=config.num_warps,
+        waves_per_eu=config.waves_per_eu,
     )
 
     if not async_op:
