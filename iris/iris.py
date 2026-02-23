@@ -1742,6 +1742,36 @@ class Iris:
 
             _reduce_scatter(output_tensor, input_tensor, self._iris, config=config, async_op=async_op)
 
+        def reduce_scatter_inline(self, output_tensor, input_tensor, config=None, async_op=False):
+            """
+            Reduce-scatter collective operation.
+
+            Each rank reduces its assigned tiles from all ranks' inputs and stores
+            the result only to its own output tensor. This is similar to all-reduce
+            but without broadcasting the result to all ranks.
+
+            Args:
+                output_tensor: Output tensor of shape (M, N) - will contain reduced tiles for this rank
+                input_tensor: Input tensor of shape (M, N) - local rank's partial data
+                config: Config instance with kernel parameters (default: None).
+                        If None, uses default Config values.
+                        Only supports reduce_scatter_variant="two_shot".
+                async_op: If False, performs a barrier at the end. If True, returns immediately.
+                          Default: False.
+
+            Example:
+                >>> shmem = iris.iris()
+                >>> shmem.ccl.reduce_scatter_inline(output_tensor, input_tensor)
+
+                >>> # Custom configuration
+                >>> from iris.ccl import Config
+                >>> config = Config(reduce_scatter_variant="two_shot", all_reduce_distribution=1)
+                >>> shmem.ccl.reduce_scatter(output_tensor, input_tensor, config=config)
+            """
+            from iris.ccl.reduce_scatter_inline import reduce_scatter_inline as _reduce_scatter_inline
+
+            _reduce_scatter_inline(output_tensor, input_tensor, self._iris, config=config, async_op=async_op)
+
 
 @triton.jit
 def __translate(ptr, from_rank, to_rank, heap_bases):
