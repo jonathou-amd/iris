@@ -139,7 +139,7 @@ def persistent_all_gather(
                     heap_bases,
                     mask=combined_mask,
                     hint=(1, BLOCK_SIZE_N),
-                    cache_modifier=CACHE_MODIFIER
+                    cache_modifier=CACHE_MODIFIER,
                 )
 
 
@@ -279,7 +279,7 @@ def persistent_all_gather_partitioned(
                 heap_bases,
                 mask=combined_mask,
                 hint=(1, BLOCK_SIZE_N),
-                cache_modifier=CACHE_MODIFIER
+                cache_modifier=CACHE_MODIFIER,
             )
 
 

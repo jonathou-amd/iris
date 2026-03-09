@@ -12,7 +12,6 @@ Run with:
 """
 
 import argparse
-from email import parser
 import os
 
 import torch
@@ -63,16 +62,17 @@ def main():
     input_tensor.fill_(float(rank + 1))
     output_tensor = ctx.zeros((world_size * M, N), dtype=dtype)
 
-    config_kwargs = {"block_size_m": args["block_size_m"],
-                     "block_size_n": args["block_size_n"],
-                     "comm_sms": args["comm_sms"], 
-                     "cache_modifier": args["cache_modifier"], 
-                     "num_stages": args["num_stages"], 
-                     "num_warps": args["num_warps"], 
-                     "waves_per_eu": args["waves_per_eu"]
-                    }
+    config_kwargs = {
+        "block_size_m": args["block_size_m"],
+        "block_size_n": args["block_size_n"],
+        "comm_sms": args["comm_sms"],
+        "cache_modifier": args["cache_modifier"],
+        "num_stages": args["num_stages"],
+        "num_warps": args["num_warps"],
+        "waves_per_eu": args["waves_per_eu"],
+    }
     config = Config(**config_kwargs)
-    
+
     ctx.barrier()
     ctx.ccl.all_gather(output_tensor, input_tensor, config=config)
     torch.cuda.synchronize()

@@ -1870,7 +1870,16 @@ def load(pointer, to_rank, from_rank, heap_bases, mask=None, hint: tl.constexpr 
 
 
 @triton.jit
-def store(pointer, value, from_rank, to_rank, heap_bases, mask=None, hint: tl.constexpr = None, cache_modifier: tl.constexpr = ""):
+def store(
+    pointer,
+    value,
+    from_rank,
+    to_rank,
+    heap_bases,
+    mask=None,
+    hint: tl.constexpr = None,
+    cache_modifier: tl.constexpr = "",
+):
     """
     Writes data to the specified rank's memory location.
 
