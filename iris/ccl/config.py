@@ -80,6 +80,10 @@ class Config:
     all_reduce_num_rings: int = 1
     all_reduce_ring_slice_n: int | None = None
     reduce_scatter_variant: str = "two_shot"
+    cache_modifier: str = ""
+    num_stages: int = 1
+    num_warps: int = 4
+    waves_per_eu: int = 0
 
     def __post_init__(self):
         """Validate and auto-detect num_xcds if not set."""

@@ -35,6 +35,7 @@ def persistent_all_gather(
     COMM_SMS: tl.constexpr,
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Persistent all-gather kernel.
@@ -126,7 +127,7 @@ def persistent_all_gather(
 
             if i == group_rank:
                 # Local destination (i == group_rank): use direct store
-                tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=".wt")
+                tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
             else:
                 # Remote destination: use iris.store to send data to remote destination
                 # Use iris_rank for iris RMA operations (heap_bases indexing)
@@ -138,6 +139,7 @@ def persistent_all_gather(
                     heap_bases,
                     mask=combined_mask,
                     hint=(1, BLOCK_SIZE_N),
+                    cache_modifier=CACHE_MODIFIER
                 )
 
 
@@ -163,6 +165,7 @@ def persistent_all_gather_partitioned(
     COMM_SMS: tl.constexpr,
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Persistent all-gather kernel with rank-partitioned work distribution.
@@ -265,7 +268,7 @@ def persistent_all_gather_partitioned(
         # Send to the assigned destination rank
         if dest_rank_idx == group_rank:
             # Local destination: use direct store
-            tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=".wt")
+            tl.store(output_ptr_target, data, mask=combined_mask, cache_modifier=CACHE_MODIFIER)
         else:
             # Remote destination: use iris.store to send data to remote destination
             iris.store(
@@ -276,6 +279,7 @@ def persistent_all_gather_partitioned(
                 heap_bases,
                 mask=combined_mask,
                 hint=(1, BLOCK_SIZE_N),
+                cache_modifier=CACHE_MODIFIER
             )
 
 
@@ -377,6 +381,10 @@ def all_gather(
         config.comm_sms,
         config.num_xcds,
         config.chunk_size,
+        config.cache_modifier,
+        num_stages=config.num_stages,
+        num_warps=config.num_warps,
+        waves_per_eu=config.waves_per_eu,
     )
 
     if not async_op:
