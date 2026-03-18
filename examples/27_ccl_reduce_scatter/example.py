@@ -104,9 +104,7 @@ def main():
         out_float = output_tensor.float()
         expected_where = full_reduced[mask]
         actual_where = out_float[mask]
-        assert torch.allclose(actual_where, expected_where, atol=0.6), (
-            f"Rank {rank}: output mismatch on assigned tiles"
-        )
+        assert torch.allclose(actual_where, expected_where, atol=0.6), f"Rank {rank}: output mismatch on assigned tiles"
         if rank == 0:
             ctx.info("Validation passed: output matches reference")
 
