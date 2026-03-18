@@ -45,6 +45,7 @@ def persistent_all_to_all(
     COMM_SMS: tl.constexpr,
     NUM_XCDS: tl.constexpr,
     CHUNK_SIZE: tl.constexpr,
+    CACHE_MODIFIER: tl.constexpr,
 ):
     """
     Persistent all-to-all kernel.
@@ -68,6 +69,7 @@ def persistent_all_to_all(
         COMM_SMS: Number of SMs for communication
         NUM_XCDS: Number of XCDs
         CHUNK_SIZE: Chunk size for chiplet transform
+        CACHE_MODIFIER: Cache modifier for store operations (e.g. "", ".wt", ".cs")
     """
     pid = tl.program_id(0)
 
@@ -122,7 +124,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local)
-            tl.store(output_ptr_local, data, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, cache_modifier=CACHE_MODIFIER)
 
             # Process all remote ranks
             for i in range(world_size):
@@ -145,6 +147,7 @@ def persistent_all_to_all(
                         target_rank,
                         heap_bases,
                         hint=(1, BLOCK_SIZE_N),
+                        cache_modifier=CACHE_MODIFIER,
                     )
 
         # Slow path: MASKED (only boundary tiles land here)
@@ -161,7 +164,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local, mask=mask)
-            tl.store(output_ptr_local, data, mask=mask, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, mask=mask, cache_modifier=CACHE_MODIFIER)
 
             # Process all remote ranks
             for i in range(world_size):
@@ -185,6 +188,7 @@ def persistent_all_to_all(
                         heap_bases,
                         mask=mask,
                         hint=(1, BLOCK_SIZE_N),
+                        cache_modifier=CACHE_MODIFIER,
                     )
 
 
@@ -229,6 +233,7 @@ if GLUON_AVAILABLE:
         COMM_SMS: gl.constexpr,
         NUM_XCDS: gl.constexpr,
         CHUNK_SIZE: gl.constexpr,
+        CACHE_MODIFIER: gl.constexpr,
     ):
         """
         Persistent all-to-all kernel using Gluon.
@@ -296,7 +301,7 @@ if GLUON_AVAILABLE:
 
                     # Load/store - should generate dwordx4 for 4 consecutive fp16 elements
                     data = gl.load(input_ptr_local, mask=col_mask)
-                    gl.store(output_ptr_local, data, mask=col_mask, cache_modifier=".wt")
+                    gl.store(output_ptr_local, data, mask=col_mask, cache_modifier=CACHE_MODIFIER)
 
             # Process remote ranks - same optimized pattern
             for rank_idx in range(world_size):
@@ -401,6 +406,10 @@ def all_to_all(
             config.comm_sms,
             config.num_xcds,
             config.chunk_size,
+            config.cache_modifier,
+            num_stages=config.num_stages,
+            num_warps=config.num_warps,
+            waves_per_eu=config.waves_per_eu,
         )
     else:
         # Use Triton implementation
@@ -428,6 +437,10 @@ def all_to_all(
             config.comm_sms,
             config.num_xcds,
             config.chunk_size,
+            config.cache_modifier,
+            num_stages=config.num_stages,
+            num_warps=config.num_warps,
+            waves_per_eu=config.waves_per_eu,
         )
 
     if not async_op:
