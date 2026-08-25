@@ -38,6 +38,11 @@ def parse_args():
     parser.add_argument("--num_warps", type=int, default=4, help="Number of warps")
     parser.add_argument("--waves_per_eu", type=int, default=0, help="Number of waves per EU")
     parser.add_argument("--use_gluon", action="store_true", help="Use Gluon kernel backend")
+    parser.add_argument(
+        "--use_tdm",
+        action="store_true",
+        help="Use Gluon TDM async_load/store (requires --use_gluon; gfx1250/gfx1260)",
+    )
     return vars(parser.parse_args())
 
 
@@ -69,7 +74,10 @@ def main():
         "num_warps": args["num_warps"],
         "waves_per_eu": args["waves_per_eu"],
         "use_gluon": args["use_gluon"],
+        "use_tdm": args["use_tdm"],
     }
+    if args["use_tdm"] and not args["use_gluon"]:
+        raise ValueError("--use_tdm requires --use_gluon")
     config = Config(**config_kwargs)
 
     ctx.barrier()

@@ -38,6 +38,12 @@ def parse_args():
     parser.add_argument("--waves_per_eu", type=int, default=0, help="Number of waves per EU")
     parser.add_argument("--datatype", type=str, default="fp16", choices=["fp16", "fp32", "bf16"], help="Data type")
     parser.add_argument("-v", "--validate", action="store_true", help="Validate output against reference")
+    parser.add_argument("--use_gluon", action="store_true", help="Use Gluon kernel backend")
+    parser.add_argument(
+        "--use_tdm",
+        action="store_true",
+        help="Use Gluon TDM (HBM->LDS->HBM); requires --use_gluon",
+    )
     return vars(parser.parse_args())
 
 
@@ -61,6 +67,9 @@ def main():
     input_tensor.fill_(float(rank + 1))
     output_tensor = ctx.zeros((M, N), dtype=dtype)
 
+    if args["use_tdm"] and not args["use_gluon"]:
+        raise ValueError("--use_tdm requires --use_gluon")
+
     config_kwargs = {
         "block_size_m": args["block_size_m"],
         "block_size_n": args["block_size_n"],
@@ -69,6 +78,8 @@ def main():
         "num_warps": args["num_warps"],
         "waves_per_eu": args["waves_per_eu"],
         "all_reduce_distribution": 1,
+        "use_gluon": args["use_gluon"],
+        "use_tdm": args["use_tdm"],
     }
     config = Config(**config_kwargs)
 

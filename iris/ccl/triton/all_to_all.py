@@ -111,7 +111,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local)
-            tl.store(output_ptr_local, data, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, cache_modifier=".cs")
 
             # Process all remote ranks
             for i in range(world_size):
@@ -134,6 +134,7 @@ def persistent_all_to_all(
                         target_rank,
                         heap_bases,
                         hint=(1, BLOCK_SIZE_N),
+                        cache_modifier=".cs",
                     )
 
         # Slow path: MASKED (only boundary tiles land here)
@@ -150,7 +151,7 @@ def persistent_all_to_all(
             output_ptr_local = tl.multiple_of(output_ptr_local, (BLOCK_SIZE_M, BLOCK_SIZE_N))
 
             data = tl.load(input_ptr_local, mask=mask)
-            tl.store(output_ptr_local, data, mask=mask, cache_modifier=".wt")
+            tl.store(output_ptr_local, data, mask=mask, cache_modifier=".cs")
 
             # Process all remote ranks
             for i in range(world_size):
@@ -174,6 +175,7 @@ def persistent_all_to_all(
                         heap_bases,
                         mask=mask,
                         hint=(1, BLOCK_SIZE_N),
+                        cache_modifier=".cs",
                     )
 
 

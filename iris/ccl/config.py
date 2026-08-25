@@ -31,6 +31,8 @@ class Config:
         num_xcds: Number of XCCs. If None, auto-detected from system (default: None)
         use_gluon: If True, use Gluon-based implementation (default: False)
                    Gluon provides better control over warp-level traffic shaping
+        use_tdm: If True (requires use_gluon), use Gluon TDM async_load/store on
+                 gfx1250/gfx1260 instead of VGPR loads/stores (default: False)
         all_gather_variant: Variant for all-gather operation (default: "persistent")
                            Options: "persistent", "partitioned"
                            - "persistent": Each PID handles multiple tiles and sends to all ranks
@@ -84,6 +86,7 @@ class Config:
     num_xcds: int | None = None
     chunk_size: int | None = None
     use_gluon: bool = False
+    use_tdm: bool = False
     all_gather_variant: str = "persistent"
     all_reduce_variant: str = "two_shot"
     all_reduce_distribution: int = 1

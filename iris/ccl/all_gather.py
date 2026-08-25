@@ -39,9 +39,13 @@ def all_gather(output_tensor, input_tensor, ctx, group=None, async_op=False, con
             f"{expected_output_shape}. Expected (world_size * M, N) = ({world_size * M}, {N})"
         )
 
-    if config.use_gluon:
+    if config.use_gluon and config.use_tdm:
+        from iris.ccl.gluon.all_gather_tdm import launch
+    elif config.use_gluon:
         from iris.ccl.gluon.all_gather import launch
     else:
+        if config.use_tdm:
+            raise ValueError("use_tdm=True requires use_gluon=True")
         from iris.ccl.triton.all_gather import launch
 
     launch(

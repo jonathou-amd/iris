@@ -4,7 +4,7 @@
 """
 Reduce-scatter collective operation — public API.
 
-Triton only (no gluon support).
+Routes to triton/ or gluon TDM based on config.use_gluon / config.use_tdm.
 """
 
 from iris.ccl.utils import extract_group_info
@@ -35,11 +35,10 @@ def reduce_scatter(output_tensor, input_tensor, ctx, op=None, group=None, async_
         )
     if config is None:
         config = Config(block_size_m=32, block_size_n=64, all_reduce_distribution=1)
-    if config.use_gluon:
+    if config.use_gluon and not config.use_tdm:
         raise ValueError(
-            "reduce_scatter does not support use_gluon=True. "
-            "Gluon implementation is not available for reduce_scatter. "
-            "Use default config (use_gluon=False)."
+            "reduce_scatter Gluon (non-TDM) is not implemented. "
+            "Use use_tdm=True with use_gluon=True, or default use_gluon=False."
         )
 
     variant = getattr(config, "reduce_scatter_variant", "two_shot")
@@ -55,7 +54,12 @@ def reduce_scatter(output_tensor, input_tensor, ctx, op=None, group=None, async_
             f"For reduce-scatter, output should have the same shape as input."
         )
 
-    from iris.ccl.triton.reduce_scatter import launch
+    if config.use_gluon and config.use_tdm:
+        from iris.ccl.gluon.reduce_scatter_tdm import launch
+    else:
+        if config.use_tdm:
+            raise ValueError("use_tdm=True requires use_gluon=True")
+        from iris.ccl.triton.reduce_scatter import launch
 
     launch(
         output_tensor,
