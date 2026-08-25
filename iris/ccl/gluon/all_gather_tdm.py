@@ -21,9 +21,7 @@ try:
 
     GFX1250_TDM_AVAILABLE = True
 except ImportError as e:
-    raise ValueError(
-        "Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False."
-    ) from e
+    raise ValueError("Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False.") from e
 
 import torch
 
@@ -56,9 +54,7 @@ def persistent_all_gather_tdm_gfx1250(
     pid = gl.program_id(0)
 
     dtype: gl.constexpr = input_ptr.dtype.element_ty
-    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
-        [[block_n, 8]], [block_m, block_n], [1, 0]
-    )
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
     smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
 
     out_m = M * world_size
@@ -201,9 +197,7 @@ def launch(
     M, N = input_tensor.shape[:2]
     expected_output_shape = (world_size * M, N)
     if output_tensor.shape[:2] != expected_output_shape:
-        raise ValueError(
-            f"Output shape {output_tensor.shape[:2]} does not match expected {expected_output_shape}"
-        )
+        raise ValueError(f"Output shape {output_tensor.shape[:2]} does not match expected {expected_output_shape}")
 
     if world_size > 8:
         raise ValueError(f"TDM all-gather supports world_size <= 8, got {world_size}")
