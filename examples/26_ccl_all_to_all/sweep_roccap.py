@@ -47,7 +47,7 @@ DATATYPES = ["fp32"]
 # TDM: both dims must be power-of-2; block_size_n <= 256 recommended for FFM
 BLOCK_SIZES: list[tuple[int, int]] = [
     # VMEM
-    #(256, 256),
+    # (256, 256),
     # LDS
     (512, 256),
 ]
@@ -255,9 +255,7 @@ def capture_passed(cfg: SweepConfig, workdir: Path, min_cap_bytes: int) -> tuple
         if size <= min_cap_bytes:
             all_ok = False
             min_cap_mb = min_cap_bytes / (1024 * 1024)
-            messages.append(
-                f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (need > {min_cap_mb:g} MiB)"
-            )
+            messages.append(f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (need > {min_cap_mb:g} MiB)")
         else:
             messages.append(f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (pass)")
 

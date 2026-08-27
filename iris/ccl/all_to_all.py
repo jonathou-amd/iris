@@ -35,9 +35,7 @@ def all_to_all(output_tensor, input_tensor, ctx, group=None, async_op=False, con
     if total_n % world_size != 0:
         raise ValueError(f"Input width {total_n} must be divisible by world_size {world_size}")
     if output_tensor.shape[:2] != (M, total_n):
-        raise ValueError(
-            f"Output tensor shape {output_tensor.shape[:2]} does not match input shape {(M, total_n)}"
-        )
+        raise ValueError(f"Output tensor shape {output_tensor.shape[:2]} does not match input shape {(M, total_n)}")
 
     if config.use_gluon and config.use_tdm:
         from iris.ccl.gluon.all_to_all_tdm import launch

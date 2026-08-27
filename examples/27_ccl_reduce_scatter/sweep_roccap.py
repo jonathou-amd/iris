@@ -244,9 +244,7 @@ def capture_passed(cfg: SweepConfig, workdir: Path, min_cap_bytes: int) -> tuple
         if size <= min_cap_bytes:
             all_ok = False
             min_cap_mb = min_cap_bytes / (1024 * 1024)
-            messages.append(
-                f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (need > {min_cap_mb:g} MiB)"
-            )
+            messages.append(f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (need > {min_cap_mb:g} MiB)")
         else:
             messages.append(f"rank{rank}: {cap_path.name} is {size_mb:.2f} MiB (pass)")
 

@@ -20,9 +20,7 @@ try:
 
     GFX1250_TDM_AVAILABLE = True
 except ImportError as e:
-    raise ValueError(
-        "Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False."
-    ) from e
+    raise ValueError("Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False.") from e
 
 import torch
 
@@ -59,9 +57,7 @@ def persistent_reduce_scatter_tdm_gfx1250(
     dtype: gl.constexpr = input_ptr.dtype.element_ty
     acc_dtype: gl.constexpr = gl.float32 if dtype != gl.int8 else gl.int32
 
-    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
-        [[block_n, 8]], [block_m, block_n], [1, 0]
-    )
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
     smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
 
     total_elems: gl.constexpr = block_m * block_n
@@ -232,9 +228,7 @@ def launch(
 
     M, N = input_tensor.shape[:2]
     if output_tensor.shape[:2] != (M, N):
-        raise ValueError(
-            f"Output shape {output_tensor.shape[:2]} does not match input shape {(M, N)}"
-        )
+        raise ValueError(f"Output shape {output_tensor.shape[:2]} does not match input shape {(M, N)}")
 
     if world_size > 8:
         raise ValueError(f"TDM reduce-scatter supports world_size <= 8, got {world_size}")

@@ -18,9 +18,7 @@ try:
 
     GFX1250_TDM_AVAILABLE = True
 except ImportError as e:
-    raise ValueError(
-        "Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False."
-    ) from e
+    raise ValueError("Gluon TDM is not available. Install Triton with Gluon TDM support or set use_tdm=False.") from e
 
 import torch
 
@@ -56,9 +54,7 @@ def persistent_all_to_all_tdm_gfx1250(
     pid = gl.program_id(0)
 
     dtype: gl.constexpr = input_ptr.dtype.element_ty
-    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
-        [[block_n, 8]], [block_m, block_n], [1, 0]
-    )
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
     smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
 
     n_total = N * world_size
@@ -126,7 +122,7 @@ def _max_lds_bytes(device_index: int = 0) -> int:
 
     hint = (
         "Could not query max shared memory. "
-        "Try: python3 -c \"import triton.runtime.driver as d; "
+        'Try: python3 -c "import triton.runtime.driver as d; '
         "print(d.active.utils.get_device_properties(0)['max_shared_mem'])\""
     )
     if triton_err is not None:
@@ -191,9 +187,7 @@ def launch(
     N = total_n // world_size
 
     if output_tensor.shape[:2] != (M, total_n):
-        raise ValueError(
-            f"Output shape {output_tensor.shape[:2]} does not match input shape {(M, total_n)}"
-        )
+        raise ValueError(f"Output shape {output_tensor.shape[:2]} does not match input shape {(M, total_n)}")
 
     elem_size = input_tensor.element_size()
     device_index = input_tensor.device.index
