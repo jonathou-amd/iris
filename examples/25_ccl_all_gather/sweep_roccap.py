@@ -9,6 +9,7 @@ Edit the parameter arrays below, then run from this directory:
 Each run executes torchrun + roccap_wrapper, then renames generated .cap and
 .json files to unique names encoding the sweep parameters, e.g.:
     persistent_all_gather_tdm_gfx1250_64x64_512x256_80sms_1stage_fp32_8warps_2nproc_rank0.cap
+    persistent_all_gather_tdm_gfx1250_stepwise_...  (all_gather_tdm_variant=stepwise)
 
 Notes for TDM sweeps:
   - Use fp32; block_size_m/block_size_n must be powers of 2 (PaddedSharedLayout).
@@ -33,10 +34,14 @@ from typing import Iterable
 # Roccap -k filter must match the Triton kernel function name.
 
 
-def roccap_kernel(use_gluon: bool, use_tdm: bool) -> str:
+def roccap_kernel(use_gluon: bool, use_tdm: bool, all_gather_tdm_variant: str = "hoisted") -> str:
     if use_tdm:
         if not use_gluon:
             raise ValueError("use_tdm=True requires use_gluon=True")
+        if all_gather_tdm_variant == "stepwise":
+            return "persistent_all_gather_tdm_gfx1250_stepwise"
+        if all_gather_tdm_variant != "hoisted":
+            raise ValueError(f"Unknown all_gather_tdm_variant: {all_gather_tdm_variant}")
         return "persistent_all_gather_tdm_gfx1250"
     if use_gluon:
         return "persistent_all_gather_gluon"
@@ -47,27 +52,31 @@ def roccap_kernel(use_gluon: bool, use_tdm: bool) -> str:
 # Sweep parameter arrays — edit these to define your sweep
 # ---------------------------------------------------------------------------
 
-NPROC_PER_NODE = [2]
+NPROC_PER_NODE = [8]
 
-M_SIZES = [4096]
-N_SIZES = [1280]
+M_SIZES = [2048]
+N_SIZES = [2048]
 
 DATATYPES = ["fp32"]
 
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
 BLOCK_SIZES: list[tuple[int, int]] = [
+    # VMEM
+    #(256, 256),
+    # LDS
     (512, 256),
 ]
 
-COMM_SMS = [80]
+COMM_SMS = [64, 80, 96] #, 80, 96]
 NUM_STAGES = [1]
-NUM_WARPS = [8]
+NUM_WARPS = [8] #, 32]
 
 WAVES_PER_EU = [0]
 HEAP_SIZE = [1 << 31]
 VALIDATE = [False]
-USE_GLUON = [False]
-USE_TDM = [False]
+USE_GLUON = [True]
+USE_TDM = [True]
+ALL_GATHER_TDM_VARIANT = ["hoisted", "stepwise"]  # "hoisted" | "stepwise"
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
 # Use 10.0 for full production sweeps; lower temporarily for small smoke-test configs.
@@ -102,10 +111,11 @@ class SweepConfig:
     validate: bool
     use_gluon: bool
     use_tdm: bool
+    all_gather_tdm_variant: str
 
     @property
     def kernel(self) -> str:
-        return roccap_kernel(self.use_gluon, self.use_tdm)
+        return roccap_kernel(self.use_gluon, self.use_tdm, self.all_gather_tdm_variant)
 
     @property
     def matrix_label(self) -> str:
@@ -152,6 +162,7 @@ class SweepConfig:
             args.append("--use_gluon")
         if self.use_tdm:
             args.append("--use_tdm")
+            args.extend(["--all_gather_tdm_variant", self.all_gather_tdm_variant])
         args.extend(EXTRA_EXAMPLE_ARGS)
         return args
 
@@ -185,6 +196,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         validate,
         use_gluon,
         use_tdm,
+        all_gather_tdm_variant,
     ) in itertools.product(
         NPROC_PER_NODE,
         M_SIZES,
@@ -199,8 +211,11 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         VALIDATE,
         USE_GLUON,
         USE_TDM,
+        ALL_GATHER_TDM_VARIANT,
     ):
         if use_tdm and not use_gluon:
+            continue
+        if all_gather_tdm_variant != "hoisted" and not use_tdm:
             continue
         block_size_m, block_size_n = block_size
         yield SweepConfig(
@@ -218,6 +233,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
             validate,
             use_gluon,
             use_tdm,
+            all_gather_tdm_variant,
         )
 
 

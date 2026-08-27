@@ -34,29 +34,29 @@ from typing import Iterable
 # Sweep parameter arrays — edit these to define your sweep
 # ---------------------------------------------------------------------------
 
-NPROC_PER_NODE = [2]
+NPROC_PER_NODE = [8]
 
-M_SIZES = [64]
-N_SIZES = [64]
+M_SIZES = [8192]
+N_SIZES = [4096]
 
 DATATYPES = ["fp32"]
 
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
 BLOCK_SIZES: list[tuple[int, int]] = [
-    (8, 64),
+    (128, 128),
     # Production-ish (528 KiB LDS tile):
     # (512, 256),
 ]
 
-COMM_SMS = [4]
+COMM_SMS = [96]
 NUM_STAGES = [1]
-NUM_WARPS = [4]
+NUM_WARPS = [32]
 
 WAVES_PER_EU = [0]
 HEAP_SIZE = [1 << 29]  # [1 << 31]
 VALIDATE = [False]
-USE_GLUON = [True]
-USE_TDM = [True]
+USE_GLUON = [False]
+USE_TDM = [False]
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
 MIN_CAP_MB = 4.0

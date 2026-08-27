@@ -37,6 +37,11 @@ class Config:
                            Options: "persistent", "partitioned"
                            - "persistent": Each PID handles multiple tiles and sends to all ranks
                            - "partitioned": PIDs partitioned across ranks, eliminates inner loop
+        all_gather_tdm_variant: TDM all-gather kernel variant when use_tdm=True (default: "hoisted")
+                           Options: "hoisted", "stepwise"
+                           - "hoisted": One load + unrolled stores per tile (world_size <= 8)
+                           - "stepwise": Same tile loop as hoisted; dynamic output
+                             descriptors in inner dest loop (arbitrary world_size)
         all_reduce_variant: Variant for all-reduce operation (default: "atomic")
                            Options: "atomic", "ring", "two_shot", "one_shot", "spinlock"
         all_reduce_distribution: Distribution for two-shot all-reduce (default: 0)
@@ -88,6 +93,7 @@ class Config:
     use_gluon: bool = False
     use_tdm: bool = False
     all_gather_variant: str = "persistent"
+    all_gather_tdm_variant: str = "hoisted"
     all_reduce_variant: str = "two_shot"
     all_reduce_distribution: int = 1
     all_reduce_num_rings: int = 1
@@ -120,6 +126,10 @@ class Config:
         if self.all_gather_variant not in ["persistent", "partitioned"]:
             raise ValueError(
                 f"all_gather_variant must be one of: 'persistent', 'partitioned', got {self.all_gather_variant}"
+            )
+        if self.all_gather_tdm_variant not in ["hoisted", "stepwise"]:
+            raise ValueError(
+                f"all_gather_tdm_variant must be one of: 'hoisted', 'stepwise', got {self.all_gather_tdm_variant}"
             )
         if self.all_reduce_variant not in ["atomic", "ring", "two_shot", "one_shot", "spinlock"]:
             raise ValueError(

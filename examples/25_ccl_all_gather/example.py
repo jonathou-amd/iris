@@ -43,6 +43,14 @@ def parse_args():
         action="store_true",
         help="Use Gluon TDM async_load/store (requires --use_gluon; gfx1250/gfx1260)",
     )
+    parser.add_argument(
+        "--all_gather_tdm_variant",
+        type=str,
+        default="hoisted",
+        choices=["hoisted", "stepwise"],
+        help="TDM all-gather kernel: hoisted (unrolled stores, W<=8) or "
+        "stepwise (dynamic descriptors in inner loop, any W; same tile loop as hoisted)",
+    )
     return vars(parser.parse_args())
 
 
@@ -75,9 +83,12 @@ def main():
         "waves_per_eu": args["waves_per_eu"],
         "use_gluon": args["use_gluon"],
         "use_tdm": args["use_tdm"],
+        "all_gather_tdm_variant": args["all_gather_tdm_variant"],
     }
     if args["use_tdm"] and not args["use_gluon"]:
         raise ValueError("--use_tdm requires --use_gluon")
+    if args["all_gather_tdm_variant"] != "hoisted" and not args["use_tdm"]:
+        raise ValueError("--all_gather_tdm_variant requires --use_tdm")
     config = Config(**config_kwargs)
 
     ctx.barrier()

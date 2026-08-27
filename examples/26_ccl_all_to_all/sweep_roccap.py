@@ -35,11 +35,11 @@ from typing import Iterable
 # Sweep parameter arrays — edit these to define your sweep
 # ---------------------------------------------------------------------------
 
-NPROC_PER_NODE = [8]
+NPROC_PER_NODE = [2]
 
-M_SIZES = [1024]
+M_SIZES = [4096]
 # Per-rank column count (-n); total width is N * world_size
-N_SIZES = [1024]
+N_SIZES = [4096]
 
 DATATYPES = ["fp32"]
 
@@ -52,9 +52,9 @@ BLOCK_SIZES: list[tuple[int, int]] = [
     (512, 256),
 ]
 
-COMM_SMS = [64]
+COMM_SMS = [64, 80, 96]
 NUM_STAGES = [1]
-NUM_WARPS = [8]
+NUM_WARPS = [8, 32]
 
 WAVES_PER_EU = [0]
 HEAP_SIZE = [1 << 31]  # [1 << 31]
