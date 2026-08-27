@@ -203,9 +203,7 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
     pid = gl.program_id(0)
 
     dtype: gl.constexpr = input_ptr.dtype.element_ty
-    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
-        [[block_n, 8]], [block_m, block_n], [1, 0]
-    )
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
     smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
 
     out_m = M * world_size

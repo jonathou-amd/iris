@@ -62,14 +62,14 @@ DATATYPES = ["fp32"]
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
 BLOCK_SIZES: list[tuple[int, int]] = [
     # VMEM
-    #(256, 256),
+    # (256, 256),
     # LDS
     (512, 256),
 ]
 
-COMM_SMS = [64, 80, 96] #, 80, 96]
+COMM_SMS = [64, 80, 96]  # , 80, 96]
 NUM_STAGES = [1]
-NUM_WARPS = [8] #, 32]
+NUM_WARPS = [8]  # , 32]
 
 WAVES_PER_EU = [0]
 HEAP_SIZE = [1 << 31]
