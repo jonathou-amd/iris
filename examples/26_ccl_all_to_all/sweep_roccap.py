@@ -37,9 +37,9 @@ from typing import Iterable
 
 NPROC_PER_NODE = [32]
 
-M_SIZES = [1536] #8192]
+M_SIZES = [1536]  # 8192]
 # Per-rank column count (-n); total width is N * world_size
-N_SIZES = [2048] #8192]
+N_SIZES = [2048]  # 8192]
 
 DATATYPES = ["fp32"]
 
@@ -49,7 +49,7 @@ BLOCK_SIZES: list[tuple[int, int]] = [
     # VMEM
     (128, 128),
     # LDS
-    #(512, 256),
+    # (512, 256),
 ]
 
 COMM_SMS = [96]

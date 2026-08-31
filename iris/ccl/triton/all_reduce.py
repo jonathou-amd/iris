@@ -661,11 +661,15 @@ def persistent_all_reduce_two_shot(
 
             start_rank_idx = pid % world_size
             start_rank_global = rank_start + start_rank_idx * rank_stride
-            acc = iris.load(base_ptr, iris_rank, start_rank_global, heap_bases, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs").to(acc_dtype)
+            acc = iris.load(
+                base_ptr, iris_rank, start_rank_global, heap_bases, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs"
+            ).to(acc_dtype)
             for i in tl.static_range(1, world_size):
                 remote_rank_idx = (start_rank_idx + i) % world_size
                 remote_rank = rank_start + remote_rank_idx * rank_stride
-                acc += iris.load(base_ptr, iris_rank, remote_rank, heap_bases, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs").to(acc_dtype)
+                acc += iris.load(
+                    base_ptr, iris_rank, remote_rank, heap_bases, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs"
+                ).to(acc_dtype)
 
             reduced = acc.to(output_ptr.type.element_ty)
 
@@ -675,7 +679,15 @@ def persistent_all_reduce_two_shot(
                 remote_rank_idx = (start_rank_idx + i) % world_size
                 remote_rank = rank_start + remote_rank_idx * rank_stride
                 if remote_rank_idx != group_rank:
-                    iris.store(out_ptr, reduced, iris_rank, remote_rank, heap_bases, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs")
+                    iris.store(
+                        out_ptr,
+                        reduced,
+                        iris_rank,
+                        remote_rank,
+                        heap_bases,
+                        hint=(1, BLOCK_SIZE_N),
+                        cache_modifier=".cs",
+                    )
 
         # Slow path: MASKED (only boundary tiles land here)
         # This path handles tiles at tensor boundaries where not all elements are valid.
@@ -684,11 +696,27 @@ def persistent_all_reduce_two_shot(
 
             start_rank_idx = pid % world_size
             start_rank_global = rank_start + start_rank_idx * rank_stride
-            acc = iris.load(base_ptr, iris_rank, start_rank_global, heap_bases, mask=mask, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs").to(acc_dtype)
+            acc = iris.load(
+                base_ptr,
+                iris_rank,
+                start_rank_global,
+                heap_bases,
+                mask=mask,
+                hint=(1, BLOCK_SIZE_N),
+                cache_modifier=".cs",
+            ).to(acc_dtype)
             for i in tl.static_range(1, world_size):
                 remote_rank_idx = (start_rank_idx + i) % world_size
                 remote_rank = rank_start + remote_rank_idx * rank_stride
-                acc += iris.load(base_ptr, iris_rank, remote_rank, heap_bases, mask=mask, hint=(1, BLOCK_SIZE_N), cache_modifier=".cs").to(acc_dtype)
+                acc += iris.load(
+                    base_ptr,
+                    iris_rank,
+                    remote_rank,
+                    heap_bases,
+                    mask=mask,
+                    hint=(1, BLOCK_SIZE_N),
+                    cache_modifier=".cs",
+                ).to(acc_dtype)
 
             reduced = acc.to(output_ptr.type.element_ty)
 

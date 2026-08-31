@@ -244,9 +244,7 @@ def persistent_reduce_scatter_tdm_gfx1250_stepwise(
     dtype: gl.constexpr = input_ptr.dtype.element_ty
     acc_dtype: gl.constexpr = gl.float32 if dtype != gl.int8 else gl.int32
 
-    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for(
-        [[block_n, 8]], [block_m, block_n], [1, 0]
-    )
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
     smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
 
     total_elems: gl.constexpr = block_m * block_n

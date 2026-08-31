@@ -44,13 +44,13 @@ DATATYPES = ["fp32"]
 
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
 BLOCK_SIZES: list[tuple[int, int]] = [
-    #(256, 128),
-    #(256, 256),
+    # (256, 128),
+    # (256, 256),
     # Production-ish (528 KiB LDS tile):
     (512, 256),
     (256, 256),
-    #(256, 128),
-    #(128, 128),
+    # (256, 128),
+    # (128, 128),
 ]
 
 COMM_SMS = [64, 80, 96, 128]

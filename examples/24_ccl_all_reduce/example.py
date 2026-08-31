@@ -91,8 +91,7 @@ def main():
 
     if rank == 0:
         ctx.info(
-            f"all_reduce: world_size={world_size}, shape=({M},{N}), dtype={dtype}, "
-            f"variant={args['all_reduce_variant']}"
+            f"all_reduce: world_size={world_size}, shape=({M},{N}), dtype={dtype}, variant={args['all_reduce_variant']}"
         )
 
     if args["validate"]:
