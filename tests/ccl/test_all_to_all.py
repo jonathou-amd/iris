@@ -99,3 +99,75 @@ def test_all_to_all(dtype, M, N, block_size_m, block_size_n):
         import gc
 
         gc.collect()
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        torch.float16,
+        torch.float32,
+        torch.bfloat16,
+    ],
+)
+@pytest.mark.parametrize(
+    "M, N, block_size_m, block_size_n",
+    [
+        (128, 64, 32, 64),
+        (256, 128, 32, 16),
+        (1024, 256, 32, 64),
+    ],
+)
+def test_all_to_all_partitioned(dtype, M, N, block_size_m, block_size_n):
+    """Test all-to-all with partitioned variant by comparing against PyTorch's implementation."""
+    if not dist.is_initialized():
+        pytest.skip("torch.distributed not initialized")
+
+    heap_size = 2**33
+    shmem = iris.iris(heap_size)
+    rank = shmem.get_rank()
+    world_size = shmem.get_num_ranks()
+
+    pytorch_input_tensor = torch.randn(M, N, dtype=dtype, device=f"cuda:{rank}")
+    pytorch_input_tensor.fill_(float(rank))
+    pytorch_input_list = [pytorch_input_tensor.clone() for _ in range(world_size)]
+    pytorch_output_list = [torch.zeros(M, N, dtype=dtype, device=f"cuda:{rank}") for _ in range(world_size)]
+
+    shmem.barrier()
+    dist.all_to_all(pytorch_output_list, pytorch_input_list)
+    torch.cuda.synchronize()
+
+    pytorch_output_concat = torch.zeros(M, N * world_size, dtype=dtype, device=f"cuda:{rank}")
+    for target_rank in range(world_size):
+        pytorch_output_concat[:, target_rank * N : (target_rank + 1) * N] = pytorch_output_list[target_rank]
+
+    iris_input_concat = shmem.zeros((M, N * world_size), dtype=dtype)
+    for target_rank in range(world_size):
+        iris_input_concat[:, target_rank * N : (target_rank + 1) * N] = pytorch_input_tensor
+
+    iris_output_concat = shmem.zeros((M, N * world_size), dtype=dtype)
+
+    comm_sms = 64
+    shmem.barrier()
+    config = Config(
+        block_size_m=block_size_m,
+        block_size_n=block_size_n,
+        all_to_all_variant="partitioned",
+        comm_sms=comm_sms,
+    )
+    shmem.ccl.all_to_all(iris_output_concat, iris_input_concat, config=config)
+    torch.cuda.synchronize()
+
+    atol = 1e-3 if dtype == torch.float16 else 1e-5
+    max_diff = torch.abs(iris_output_concat - pytorch_output_concat).max().item()
+
+    try:
+        assert torch.allclose(iris_output_concat, pytorch_output_concat, atol=atol), (
+            f"Max difference: {max_diff}, expected < {atol}\n"
+            f"Rank {rank}: Iris output (partitioned) doesn't match PyTorch's all_to_all"
+        )
+    finally:
+        shmem.barrier()
+        del shmem
+        import gc
+
+        gc.collect()

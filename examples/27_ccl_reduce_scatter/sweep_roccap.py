@@ -9,6 +9,7 @@ Edit the parameter arrays below, then run from this directory:
 Each run executes torchrun + roccap_wrapper, then renames generated .cap and
 .json files to unique names encoding the sweep parameters, e.g.:
     persistent_reduce_scatter_tdm_gfx1250_64x64_8x64_4sms_1stage_fp32_4warps_2nproc_rank0.cap
+    persistent_reduce_scatter_tdm_gfx1250_stepwise_...  (reduce_scatter_tdm_variant=stepwise)
     persistent_reduce_scatter_two_shot_64x64_2x64_4sms_1stage_fp32_1warps_4nproc_rank0.cap
 
 Notes for TDM sweeps:
@@ -36,27 +37,32 @@ from typing import Iterable
 
 NPROC_PER_NODE = [8]
 
-M_SIZES = [8192]
-N_SIZES = [4096]
+M_SIZES = [16384]
+N_SIZES = [8192]
 
 DATATYPES = ["fp32"]
 
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
 BLOCK_SIZES: list[tuple[int, int]] = [
-    (128, 128),
+    #(256, 128),
+    #(256, 256),
     # Production-ish (528 KiB LDS tile):
-    # (512, 256),
+    (512, 256),
+    (256, 256),
+    #(256, 128),
+    #(128, 128),
 ]
 
-COMM_SMS = [96]
+COMM_SMS = [64, 80, 96, 128]
 NUM_STAGES = [1]
-NUM_WARPS = [32]
+NUM_WARPS = [8]
 
 WAVES_PER_EU = [0]
-HEAP_SIZE = [1 << 29]  # [1 << 31]
+HEAP_SIZE = [1 << 31]  # [1 << 31]
 VALIDATE = [False]
-USE_GLUON = [False]
-USE_TDM = [False]
+USE_GLUON = [True]
+USE_TDM = [True]
+REDUCE_SCATTER_TDM_VARIANT = ["stepwise"]  # "hoisted" | "stepwise"
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
 MIN_CAP_MB = 4.0
@@ -73,10 +79,17 @@ ROCCAP_WRAPPER = EXAMPLE_DIR / "../../scripts/roccap_wrapper.py"
 EXAMPLE_SCRIPT = EXAMPLE_DIR / "example.py"
 
 
-def roccap_kernel(use_gluon: bool, use_tdm: bool) -> str:
+# Roccap -k filter must match the Triton kernel function name.
+
+
+def roccap_kernel(use_gluon: bool, use_tdm: bool, reduce_scatter_tdm_variant: str = "hoisted") -> str:
     if use_tdm:
         if not use_gluon:
             raise ValueError("use_tdm=True requires use_gluon=True")
+        if reduce_scatter_tdm_variant == "stepwise":
+            return "persistent_reduce_scatter_tdm_gfx1250_stepwise"
+        if reduce_scatter_tdm_variant != "hoisted":
+            raise ValueError(f"Unknown reduce_scatter_tdm_variant: {reduce_scatter_tdm_variant}")
         return "persistent_reduce_scatter_tdm_gfx1250"
     if use_gluon:
         raise ValueError("reduce-scatter non-TDM Gluon is not implemented")
@@ -99,10 +112,11 @@ class SweepConfig:
     validate: bool
     use_gluon: bool
     use_tdm: bool
+    reduce_scatter_tdm_variant: str
 
     @property
     def kernel(self) -> str:
-        return roccap_kernel(self.use_gluon, self.use_tdm)
+        return roccap_kernel(self.use_gluon, self.use_tdm, self.reduce_scatter_tdm_variant)
 
     @property
     def matrix_label(self) -> str:
@@ -149,6 +163,7 @@ class SweepConfig:
             args.append("--use_gluon")
         if self.use_tdm:
             args.append("--use_tdm")
+            args.extend(["--reduce_scatter_tdm_variant", self.reduce_scatter_tdm_variant])
         args.extend(EXTRA_EXAMPLE_ARGS)
         return args
 
@@ -182,6 +197,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         validate,
         use_gluon,
         use_tdm,
+        reduce_scatter_tdm_variant,
     ) in itertools.product(
         NPROC_PER_NODE,
         M_SIZES,
@@ -196,10 +212,13 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         VALIDATE,
         USE_GLUON,
         USE_TDM,
+        REDUCE_SCATTER_TDM_VARIANT,
     ):
         if use_tdm and not use_gluon:
             continue
         if use_gluon and not use_tdm:
+            continue
+        if reduce_scatter_tdm_variant != "hoisted" and not use_tdm:
             continue
         block_size_m, block_size_n = block_size
         yield SweepConfig(
@@ -217,6 +236,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
             validate,
             use_gluon,
             use_tdm,
+            reduce_scatter_tdm_variant,
         )
 
 

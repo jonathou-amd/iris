@@ -18,6 +18,7 @@ import torch
 import torch.distributed as dist
 
 import iris
+from iris.ccl import Config
 
 
 def parse_args():
@@ -30,6 +31,26 @@ def parse_args():
     parser.add_argument("--heap_size", type=int, default=1 << 31, help="Iris heap size")
     parser.add_argument("--datatype", type=str, default="fp16", choices=["fp16", "fp32", "bf16"], help="Data type")
     parser.add_argument("-v", "--validate", action="store_true", help="Validate output against reference")
+    parser.add_argument("--block_size_m", type=int, default=32, help="Block size for M dimension tiling")
+    parser.add_argument("--block_size_n", type=int, default=64, help="Block size for N dimension tiling")
+    parser.add_argument("--comm_sms", type=int, default=64, help="Number of SMs for all-reduce kernel")
+    parser.add_argument("--num_stages", type=int, default=1, help="Number of stages")
+    parser.add_argument("--num_warps", type=int, default=4, help="Number of warps")
+    parser.add_argument("--waves_per_eu", type=int, default=0, help="Number of waves per EU")
+    parser.add_argument(
+        "--all_reduce_variant",
+        type=str,
+        default="two_shot",
+        choices=["atomic", "ring", "two_shot", "one_shot", "spinlock"],
+        help="All-reduce kernel variant",
+    )
+    parser.add_argument(
+        "--all_reduce_distribution",
+        type=int,
+        default=1,
+        choices=[0, 1],
+        help="Tile distribution for two_shot variant (0=striding, 1=block)",
+    )
     return vars(parser.parse_args())
 
 
@@ -53,12 +74,26 @@ def main():
     input_tensor.fill_(float(rank + 1))
     output_tensor = ctx.zeros((M, N), dtype=dtype)
 
+    config = Config(
+        block_size_m=args["block_size_m"],
+        block_size_n=args["block_size_n"],
+        comm_sms=args["comm_sms"],
+        num_stages=args["num_stages"],
+        num_warps=args["num_warps"],
+        waves_per_eu=args["waves_per_eu"],
+        all_reduce_variant=args["all_reduce_variant"],
+        all_reduce_distribution=args["all_reduce_distribution"],
+    )
+
     ctx.barrier()
-    ctx.ccl.all_reduce(output_tensor, input_tensor)
+    ctx.ccl.all_reduce(output_tensor, input_tensor, config=config)
     torch.cuda.synchronize()
 
     if rank == 0:
-        ctx.info(f"all_reduce: world_size={world_size}, shape=({M},{N}), dtype={dtype}")
+        ctx.info(
+            f"all_reduce: world_size={world_size}, shape=({M},{N}), dtype={dtype}, "
+            f"variant={args['all_reduce_variant']}"
+        )
 
     if args["validate"]:
         # Expected: sum of (r+1) for r in 0..world_size-1

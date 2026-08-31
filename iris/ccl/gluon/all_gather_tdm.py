@@ -227,7 +227,7 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
         out_row_off = group_rank * M + row_off
 
         gfx1250_tdm.async_load(input_desc, [row_off, col_off], smem)
-        gfx1250_tdm.async_wait(0)
+        #gfx1250_tdm.async_wait(0)
 
         for dest_idx in gl.static_range(world_size):
             dest_group_rank = (group_rank + dest_idx) % world_size
@@ -241,7 +241,7 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
             )
             gfx1250_tdm.async_store(out_desc, [out_row_off, col_off], smem)
 
-        gfx1250_tdm.async_wait(0)
+        #gfx1250_tdm.async_wait(0)
 
 
 def _build_elem_deltas(input_tensor, ctx, rank_global, world_size, rank_start, rank_stride):

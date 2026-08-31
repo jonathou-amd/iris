@@ -96,6 +96,76 @@ def persistent_all_to_all_tdm_gfx1250(
         gfx1250_tdm.async_wait(0)
 
 
+@gluon.jit
+def persistent_all_to_all_tdm_gfx1250_partitioned(
+    input_ptr,
+    output_ptr,
+    elem_deltas,
+    M,
+    N,
+    stride_in_m,
+    stride_in_n,
+    stride_out_m,
+    stride_out_n,
+    group_rank: gl.constexpr,
+    world_size: gl.constexpr,
+    block_m: gl.constexpr,
+    block_n: gl.constexpr,
+    COMM_SMS: gl.constexpr,
+):
+    """
+    TDM all-to-all with PIDs partitioned across destination ranks.
+
+    Each PID group handles one destination rank's tiles only (no inner dest loop).
+    Requires COMM_SMS % world_size == 0.
+    """
+    pid = gl.program_id(0)
+
+    pids_per_rank = COMM_SMS // world_size
+    dest = pid // pids_per_rank
+    pid_in_rank_group = pid % pids_per_rank
+
+    dtype: gl.constexpr = input_ptr.dtype.element_ty
+    smem_layout: gl.constexpr = gl.PaddedSharedLayout.with_identity_for([[block_n, 8]], [block_m, block_n], [1, 0])
+    smem = gl.allocate_shared_memory(dtype, [block_m, block_n], layout=smem_layout)
+
+    n_total = N * world_size
+    num_tiles_m = gl.cdiv(M, block_m)
+    num_tiles_n = gl.cdiv(N, block_n)
+    tiles_per_dest = num_tiles_m * num_tiles_n
+
+    input_desc = gfx1250_tdm.make_tensor_descriptor(
+        base=input_ptr,
+        shape=[M, n_total],
+        strides=[stride_in_m, stride_in_n],
+        block_shape=[block_m, block_n],
+        layout=smem_layout,
+    )
+
+    delta = gl.load(elem_deltas + dest)
+
+    for tile_id in range(pid_in_rank_group, tiles_per_dest, pids_per_rank):
+        tile_m = tile_id // num_tiles_n
+        tile_n = tile_id % num_tiles_n
+
+        row_off = tile_m * block_m
+        col_off = dest * N + tile_n * block_n
+        out_col_off = group_rank * N + tile_n * block_n
+
+        gfx1250_tdm.async_load(input_desc, [row_off, col_off], smem)
+        gfx1250_tdm.async_wait(0)
+
+        out_desc = gfx1250_tdm.make_tensor_descriptor(
+            base=output_ptr + delta,
+            shape=[M, n_total],
+            strides=[stride_out_m, stride_out_n],
+            block_shape=[block_m, block_n],
+            layout=smem_layout,
+        )
+        gfx1250_tdm.async_store(out_desc, [row_off, out_col_off], smem)
+        gfx1250_tdm.async_wait(0)
+
+
 def _max_lds_bytes(device_index: int = 0) -> int:
     """Return per-block LDS cap for the active Triton target (reflects LLVM backend)."""
     try:
@@ -206,8 +276,23 @@ def launch(
         target_iris_rank = rank_start + i * rank_stride
         elem_deltas[i] = (heap_bases[target_iris_rank] - local_base) // elem_size
 
+    if config.all_to_all_variant == "partitioned" and config.comm_sms % world_size != 0:
+        raise ValueError(
+            f"For all_to_all_variant='partitioned', COMM_SMS ({config.comm_sms}) must be divisible by "
+            f"world_size ({world_size}). Please adjust config.comm_sms to be a multiple of {world_size}."
+        )
+
+    if config.all_to_all_variant == "persistent":
+        kernel_fn = persistent_all_to_all_tdm_gfx1250
+        algorithm = "all_to_all_tdm"
+    elif config.all_to_all_variant == "partitioned":
+        kernel_fn = persistent_all_to_all_tdm_gfx1250_partitioned
+        algorithm = "all_to_all_tdm_partitioned"
+    else:
+        raise ValueError(f"Unknown all_to_all_variant: {config.all_to_all_variant}")
+
     iris_launch(
-        persistent_all_to_all_tdm_gfx1250,
+        kernel_fn,
         (config.comm_sms,),
         input_tensor,
         output_tensor,
@@ -226,7 +311,7 @@ def launch(
         num_stages=config.num_stages,
         num_warps=config.num_warps,
         waves_per_eu=config.waves_per_eu,
-        algorithm="all_to_all_tdm",
+        algorithm=algorithm,
         rank=rank_global,
         dtype=input_tensor.dtype,
     )

@@ -43,6 +43,13 @@ def parse_args():
         action="store_true",
         help="Use Gluon TDM (HBM->LDS->HBM/XGMI); requires --use_gluon",
     )
+    parser.add_argument(
+        "--all_to_all_variant",
+        type=str,
+        default="persistent",
+        choices=["persistent", "partitioned"],
+        help="All-to-all kernel variant (partitioned requires comm_sms %% world_size == 0)",
+    )
     return vars(parser.parse_args())
 
 
@@ -79,6 +86,7 @@ def main():
         "waves_per_eu": args["waves_per_eu"],
         "use_gluon": args["use_gluon"],
         "use_tdm": args["use_tdm"],
+        "all_to_all_variant": args["all_to_all_variant"],
     }
     config = Config(**config_kwargs)
 

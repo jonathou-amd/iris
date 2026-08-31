@@ -52,10 +52,10 @@ def roccap_kernel(use_gluon: bool, use_tdm: bool, all_gather_tdm_variant: str = 
 # Sweep parameter arrays — edit these to define your sweep
 # ---------------------------------------------------------------------------
 
-NPROC_PER_NODE = [8]
+NPROC_PER_NODE = [4]
 
-M_SIZES = [2048]
-N_SIZES = [2048]
+M_SIZES = [8192]
+N_SIZES = [4096]
 
 DATATYPES = ["fp32"]
 
@@ -76,7 +76,7 @@ HEAP_SIZE = [1 << 31]
 VALIDATE = [False]
 USE_GLUON = [True]
 USE_TDM = [True]
-ALL_GATHER_TDM_VARIANT = ["hoisted", "stepwise"]  # "hoisted" | "stepwise"
+ALL_GATHER_TDM_VARIANT = ["stepwise"]  # "hoisted" | "stepwise"
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
 # Use 10.0 for full production sweeps; lower temporarily for small smoke-test configs.

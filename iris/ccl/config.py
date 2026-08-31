@@ -42,6 +42,10 @@ class Config:
                            - "hoisted": One load + unrolled stores per tile (world_size <= 8)
                            - "stepwise": Same tile loop as hoisted; dynamic output
                              descriptors in inner dest loop (arbitrary world_size)
+        all_to_all_variant: Variant for all-to-all operation (default: "persistent")
+                           Options: "persistent", "partitioned"
+                           - "persistent": Each PID handles multiple tiles and sends to all ranks
+                           - "partitioned": PIDs partitioned across destination ranks, eliminates inner loop
         all_reduce_variant: Variant for all-reduce operation (default: "atomic")
                            Options: "atomic", "ring", "two_shot", "one_shot", "spinlock"
         all_reduce_distribution: Distribution for two-shot all-reduce (default: 0)
@@ -51,6 +55,11 @@ class Config:
                                  (default: auto-set to block_size_n // world_size at runtime)
         reduce_scatter_variant: Variant for reduce-scatter operation (default: "two_shot")
                                 Only "two_shot" is supported
+        reduce_scatter_tdm_variant: TDM reduce-scatter kernel variant when use_tdm=True (default: "hoisted")
+                           Options: "hoisted", "stepwise"
+                           - "hoisted": W unrolled TDM loads per tile (world_size <= 8)
+                           - "stepwise": Same tile loop as hoisted; dynamic input
+                             descriptors in inner source loop (arbitrary world_size)
         num_stages: Number of pipeline stages for the kernel (default: 1)
         num_warps: Number of warps per workgroup (default: 4). For gluon kernels,
                    this also sets WARPS_PER_CTA in the BlockedLayout. The product
@@ -94,11 +103,13 @@ class Config:
     use_tdm: bool = False
     all_gather_variant: str = "persistent"
     all_gather_tdm_variant: str = "hoisted"
+    all_to_all_variant: str = "persistent"
     all_reduce_variant: str = "two_shot"
     all_reduce_distribution: int = 1
     all_reduce_num_rings: int = 1
     all_reduce_ring_slice_n: int | None = None
     reduce_scatter_variant: str = "two_shot"
+    reduce_scatter_tdm_variant: str = "hoisted"
     num_stages: int = 1
     num_warps: int = 4
     threads_per_warp: int = 64
@@ -131,6 +142,10 @@ class Config:
             raise ValueError(
                 f"all_gather_tdm_variant must be one of: 'hoisted', 'stepwise', got {self.all_gather_tdm_variant}"
             )
+        if self.all_to_all_variant not in ["persistent", "partitioned"]:
+            raise ValueError(
+                f"all_to_all_variant must be one of: 'persistent', 'partitioned', got {self.all_to_all_variant}"
+            )
         if self.all_reduce_variant not in ["atomic", "ring", "two_shot", "one_shot", "spinlock"]:
             raise ValueError(
                 f"all_reduce_variant must be one of: 'atomic', 'ring', 'two_shot', 'one_shot', 'spinlock', got {self.all_reduce_variant}"
@@ -156,6 +171,11 @@ class Config:
         # Validate reduce_scatter_variant
         if self.reduce_scatter_variant != "two_shot":
             raise ValueError(f"reduce_scatter_variant must be 'two_shot', got '{self.reduce_scatter_variant}'")
+        if self.reduce_scatter_tdm_variant not in ["hoisted", "stepwise"]:
+            raise ValueError(
+                f"reduce_scatter_tdm_variant must be one of: 'hoisted', 'stepwise', "
+                f"got {self.reduce_scatter_tdm_variant}"
+            )
 
         if self.threads_per_warp not in (32, 64):
             raise ValueError(f"threads_per_warp must be 32 (NVIDIA) or 64 (AMD), got {self.threads_per_warp}")

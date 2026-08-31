@@ -44,6 +44,14 @@ def parse_args():
         action="store_true",
         help="Use Gluon TDM (HBM->LDS->HBM); requires --use_gluon",
     )
+    parser.add_argument(
+        "--reduce_scatter_tdm_variant",
+        type=str,
+        default="hoisted",
+        choices=["hoisted", "stepwise"],
+        help="TDM reduce-scatter kernel: hoisted (unrolled loads, W<=8) or "
+        "stepwise (dynamic descriptors in inner loop, any W; same tile loop as hoisted)",
+    )
     return vars(parser.parse_args())
 
 
@@ -69,6 +77,8 @@ def main():
 
     if args["use_tdm"] and not args["use_gluon"]:
         raise ValueError("--use_tdm requires --use_gluon")
+    if args["reduce_scatter_tdm_variant"] != "hoisted" and not args["use_tdm"]:
+        raise ValueError("--reduce_scatter_tdm_variant requires --use_tdm")
 
     config_kwargs = {
         "block_size_m": args["block_size_m"],
@@ -80,6 +90,7 @@ def main():
         "all_reduce_distribution": 1,
         "use_gluon": args["use_gluon"],
         "use_tdm": args["use_tdm"],
+        "reduce_scatter_tdm_variant": args["reduce_scatter_tdm_variant"],
     }
     config = Config(**config_kwargs)
 

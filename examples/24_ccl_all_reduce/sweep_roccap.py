@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sweep roccap captures for the CCL all-to-all example (Gluon TDM).
+Sweep roccap captures for the CCL all-reduce example.
 
 Edit the parameter arrays below, then run from this directory:
     python sweep_roccap.py
@@ -8,15 +8,12 @@ Edit the parameter arrays below, then run from this directory:
 
 Each run executes torchrun + roccap_wrapper, then renames generated .cap and
 .json files to unique names encoding the sweep parameters, e.g.:
-    persistent_all_to_all_tdm_gfx1250_64x64_8x64_4sms_1stage_fp32_4warps_2nproc_rank0.cap
-    persistent_all_to_all_tdm_gfx1250_4096x1280_512x256_80sms_1stage_fp32_8warps_2nproc_rank0.cap
+    persistent_all_reduce_two_shot_8192x4096_128x128_96sms_1stage_fp32_32warps_8nproc_rank0.cap
+    persistent_all_reduce_atomic_8192x4096_128x128_96sms_1stage_fp32_32warps_8nproc_rank0.cap
 
-Notes for TDM sweeps:
-  - Use fp32; block_size_m/block_size_n must be powers of 2 (PaddedSharedLayout).
-  - Inner block_size_n > 256 may fail LLVM PassManager in FFM (try 512x256 max LDS).
+Notes:
   - Skip --validate in FFM (cross-rank RMA is not functional in simulation).
-  - For even COMM_SMS utilization: world_size * (M/512) * (N/256) % comm_sms == 0
-    (with W=2, comm_sms=80: (M/512)*(N/256) must be a multiple of 40).
+  - Ring variant requires block_size_n divisible by world_size (nproc_per_node).
 """
 
 from __future__ import annotations
@@ -35,36 +32,30 @@ from typing import Iterable
 # Sweep parameter arrays — edit these to define your sweep
 # ---------------------------------------------------------------------------
 
-NPROC_PER_NODE = [32]
+NPROC_PER_NODE = [4, 8]
 
-M_SIZES = [1536] #8192]
-# Per-rank column count (-n); total width is N * world_size
-N_SIZES = [2048] #8192]
+M_SIZES = [8192]
+N_SIZES = [4096]
 
 DATATYPES = ["fp32"]
 
 # (block_size_m, block_size_n) pairs — each entry is one sweep point
-# TDM: both dims must be power-of-2; block_size_n <= 256 recommended for FFM
 BLOCK_SIZES: list[tuple[int, int]] = [
-    # VMEM
-    (128, 128),
-    # LDS
-    #(512, 256),
+    (256, 128),
 ]
 
-COMM_SMS = [96]
+COMM_SMS = [96, 128, 144]
 NUM_STAGES = [1]
-NUM_WARPS = [32]
+NUM_WARPS = [8]
 
 WAVES_PER_EU = [0]
-HEAP_SIZE = [1 << 30]  # [1 << 31]
+HEAP_SIZE = [1 << 30]
 VALIDATE = [False]
-USE_GLUON = [False]
-USE_TDM = [False]
-ALL_TO_ALL_VARIANT = ["persistent", "partitioned"]
+
+# atomic | ring | two_shot | one_shot | spinlock
+ALL_REDUCE_VARIANT = ["two_shot", "one_shot"]
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
-# Use 10.0 for full production sweeps; lower temporarily for small smoke-test configs.
 MIN_CAP_MB = 4.0
 
 # Optional: pass extra args through to example.py (same for every run)
@@ -80,19 +71,21 @@ ROCCAP_WRAPPER = EXAMPLE_DIR / "../../scripts/roccap_wrapper.py"
 EXAMPLE_SCRIPT = EXAMPLE_DIR / "example.py"
 
 
-def roccap_kernel(use_gluon: bool, use_tdm: bool, all_to_all_variant: str) -> str:
-    """Return the Triton kernel name for roccap -k (must match @gluon.jit / @triton.jit fn)."""
-    if use_tdm:
-        if not use_gluon:
-            raise ValueError("use_tdm=True requires use_gluon=True")
-        if all_to_all_variant == "partitioned":
-            return "persistent_all_to_all_tdm_gfx1250_partitioned"
-        return "persistent_all_to_all_tdm_gfx1250"
-    if use_gluon:
-        return "persistent_all_to_all_gluon"
-    if all_to_all_variant == "partitioned":
-        return "persistent_all_to_all_partitioned"
-    return "persistent_all_to_all"
+# Roccap -k filter must match the Triton kernel function name.
+
+
+def roccap_kernel(all_reduce_variant: str) -> str:
+    variant = all_reduce_variant.lower()
+    kernel_map = {
+        "atomic": "persistent_all_reduce_atomic",
+        "ring": "persistent_all_reduce_ring",
+        "two_shot": "persistent_all_reduce_two_shot",
+        "one_shot": "persistent_all_reduce_one_shot",
+        "spinlock": "persistent_all_reduce_spinlock",
+    }
+    if variant not in kernel_map:
+        raise ValueError(f"Unknown all_reduce_variant: {all_reduce_variant}")
+    return kernel_map[variant]
 
 
 @dataclass(frozen=True)
@@ -109,13 +102,11 @@ class SweepConfig:
     waves_per_eu: int
     heap_size: int
     validate: bool
-    use_gluon: bool
-    use_tdm: bool
-    all_to_all_variant: str
+    all_reduce_variant: str
 
     @property
     def kernel(self) -> str:
-        return roccap_kernel(self.use_gluon, self.use_tdm, self.all_to_all_variant)
+        return roccap_kernel(self.all_reduce_variant)
 
     @property
     def matrix_label(self) -> str:
@@ -155,15 +146,11 @@ class SweepConfig:
             str(self.num_warps),
             "--waves_per_eu",
             str(self.waves_per_eu),
+            "--all_reduce_variant",
+            self.all_reduce_variant,
         ]
         if self.validate:
             args.append("--validate")
-        if self.use_gluon:
-            args.append("--use_gluon")
-        if self.use_tdm:
-            args.append("--use_tdm")
-        if self.all_to_all_variant != "persistent":
-            args.extend(["--all_to_all_variant", self.all_to_all_variant])
         args.extend(EXTRA_EXAMPLE_ARGS)
         return args
 
@@ -195,9 +182,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         waves_per_eu,
         heap_size,
         validate,
-        use_gluon,
-        use_tdm,
-        all_to_all_variant,
+        all_reduce_variant,
     ) in itertools.product(
         NPROC_PER_NODE,
         M_SIZES,
@@ -210,13 +195,11 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         WAVES_PER_EU,
         HEAP_SIZE,
         VALIDATE,
-        USE_GLUON,
-        USE_TDM,
-        ALL_TO_ALL_VARIANT,
+        ALL_REDUCE_VARIANT,
     ):
-        if use_tdm and not use_gluon:
-            continue
         block_size_m, block_size_n = block_size
+        if all_reduce_variant == "ring" and block_size_n % nproc_per_node != 0:
+            continue
         yield SweepConfig(
             nproc_per_node,
             m,
@@ -230,19 +213,11 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
             waves_per_eu,
             heap_size,
             validate,
-            use_gluon,
-            use_tdm,
-            all_to_all_variant,
+            all_reduce_variant,
         )
 
 
 def resolve_cap_path(cfg: SweepConfig, workdir: Path, rank: int) -> Path | None:
-    """Return the roccap output for a rank.
-
-    roccap is invoked with --file {kernel}_rank_{rank}.cap but writes the real
-    capture to {kernel}_rank_{rank}_NNNN.cap. The base file is often a small stub.
-    Pick the largest matching candidate.
-    """
     pattern = f"{cfg.kernel}_rank_{rank}*.cap"
     candidates = list(workdir.glob(pattern))
     if not candidates:
@@ -351,12 +326,8 @@ def run_one(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sweep roccap captures for CCL all-to-all (Gluon TDM)")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print commands and target output names without running",
-    )
+    parser = argparse.ArgumentParser(description="Sweep roccap captures for CCL all-reduce")
+    parser.add_argument("--dry-run", action="store_true", help="Print commands without running")
     parser.add_argument(
         "--workdir",
         type=Path,
@@ -373,7 +344,7 @@ def parse_args() -> argparse.Namespace:
         "--min-cap-mb",
         type=float,
         default=None,
-        help=f"Minimum .cap file size in MiB to count as a successful capture (default: MIN_CAP_MB={MIN_CAP_MB:g} in script)",
+        help=f"Minimum .cap file size in MiB (default: MIN_CAP_MB={MIN_CAP_MB:g})",
     )
     return parser.parse_args()
 
