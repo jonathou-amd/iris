@@ -241,10 +241,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         if all_gather_tdm_variant != "hoisted" and not use_tdm:
             continue
         # wait-after-each only applies to stepwise / warp_specialized* TDM kernels
-        if tdm_wait_after_each_op and (
-            not use_tdm
-            or all_gather_tdm_variant in ("hoisted", "warp_team")
-        ):
+        if tdm_wait_after_each_op and (not use_tdm or all_gather_tdm_variant in ("hoisted", "warp_team")):
             continue
         block_size_m, block_size_n = block_size
         yield SweepConfig(
