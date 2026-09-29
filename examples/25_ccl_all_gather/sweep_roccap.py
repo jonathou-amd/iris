@@ -11,6 +11,7 @@ Each run executes torchrun + roccap_wrapper, then renames generated .cap and
     persistent_all_gather_tdm_gfx1250_64x64_512x256_80sms_1stage_fp32_8warps_2nproc_rank0.cap
     persistent_all_gather_tdm_gfx1250_stepwise_...  (all_gather_tdm_variant=stepwise)
     persistent_all_gather_tdm_gfx1250_warp_team_...  (all_gather_tdm_variant=warp_team)
+    ..._8warps_waitcnt_4nproc_rank0.cap  (tdm_wait_after_each_op=True)
 
 Notes for TDM sweeps:
   - Use fp32; block_size_m/block_size_n must be powers of 2 (PaddedSharedLayout).
@@ -76,7 +77,7 @@ BLOCK_SIZES: list[tuple[int, int]] = [
     (512, 256),
 ]
 
-COMM_SMS = [64, 80, 96]  # , 80, 96]
+COMM_SMS = [80, 96]  # , 80, 96]
 NUM_STAGES = [1]
 NUM_WARPS = [8]  # , 32]
 
@@ -86,8 +87,12 @@ VALIDATE = [False]
 USE_GLUON = [True]
 USE_TDM = [True]
 ALL_GATHER_TDM_VARIANT = [
-    "stepwise"
+    "stepwise",
+    "warp_specialized",
 ]  # "hoisted" | "stepwise" | "warp_team" | "warp_specialized" | "warp_specialized_local_smem" | "warp_specialized_improved"
+# TransferBench-style async_wait(0) after every TDM store (stepwise / warp_specialized*).
+# True -> filenames include "_waitcnt"; False -> omitted.
+TDM_WAIT_AFTER_EACH_OP = [False, True]
 
 # Minimum .cap file size (MiB) for a capture to count as successful.
 # Use 10.0 for full production sweeps; lower temporarily for small smoke-test configs.
@@ -123,6 +128,7 @@ class SweepConfig:
     use_gluon: bool
     use_tdm: bool
     all_gather_tdm_variant: str
+    tdm_wait_after_each_op: bool
 
     @property
     def kernel(self) -> str:
@@ -133,6 +139,7 @@ class SweepConfig:
         return f"{self.m}x{self.n}"
 
     def basename(self, rank: int) -> str:
+        waitcnt_tag = "waitcnt_" if self.tdm_wait_after_each_op else ""
         return (
             f"{self.kernel}_"
             f"{self.matrix_label}_"
@@ -141,6 +148,7 @@ class SweepConfig:
             f"{self.num_stages}stage_"
             f"{self.datatype}_"
             f"{self.num_warps}warps_"
+            f"{waitcnt_tag}"
             f"{self.nproc_per_node}nproc_rank{rank}"
         )
 
@@ -174,6 +182,8 @@ class SweepConfig:
         if self.use_tdm:
             args.append("--use_tdm")
             args.extend(["--all_gather_tdm_variant", self.all_gather_tdm_variant])
+            if self.tdm_wait_after_each_op:
+                args.append("--tdm_wait_after_each_op")
         args.extend(EXTRA_EXAMPLE_ARGS)
         return args
 
@@ -208,6 +218,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         use_gluon,
         use_tdm,
         all_gather_tdm_variant,
+        tdm_wait_after_each_op,
     ) in itertools.product(
         NPROC_PER_NODE,
         M_SIZES,
@@ -223,10 +234,17 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
         USE_GLUON,
         USE_TDM,
         ALL_GATHER_TDM_VARIANT,
+        TDM_WAIT_AFTER_EACH_OP,
     ):
         if use_tdm and not use_gluon:
             continue
         if all_gather_tdm_variant != "hoisted" and not use_tdm:
+            continue
+        # wait-after-each only applies to stepwise / warp_specialized* TDM kernels
+        if tdm_wait_after_each_op and (
+            not use_tdm
+            or all_gather_tdm_variant in ("hoisted", "warp_team")
+        ):
             continue
         block_size_m, block_size_n = block_size
         yield SweepConfig(
@@ -245,6 +263,7 @@ def iter_sweep_configs() -> Iterable[SweepConfig]:
             use_gluon,
             use_tdm,
             all_gather_tdm_variant,
+            tdm_wait_after_each_op,
         )
 
 

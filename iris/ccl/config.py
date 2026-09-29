@@ -55,6 +55,10 @@ class Config:
                              but each worker partition allocates its own smem locally
                            - "warp_specialized_improved": warp_specialized_local_smem +
                              warp_team-style sub-tile striping (barrier experiment)
+        tdm_wait_after_each_op: If True, stepwise / warp_specialized* TDM kernels insert
+                           async_wait(0) after every TDM store (TransferBench issueRows-style),
+                           not only after the load and after the batched store group
+                           (default: False). Ignored by hoisted / warp_team.
         all_to_all_variant: Variant for all-to-all operation (default: "persistent")
                            Options: "persistent", "partitioned"
                            - "persistent": Each PID handles multiple tiles and sends to all ranks
@@ -116,6 +120,7 @@ class Config:
     use_tdm: bool = False
     all_gather_variant: str = "persistent"
     all_gather_tdm_variant: str = "hoisted"
+    tdm_wait_after_each_op: bool = False
     all_to_all_variant: str = "persistent"
     all_reduce_variant: str = "two_shot"
     all_reduce_distribution: int = 1

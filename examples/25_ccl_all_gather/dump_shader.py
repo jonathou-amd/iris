@@ -89,6 +89,8 @@ def _run_compile(args: argparse.Namespace) -> Path:
         "--all_gather_tdm_variant",
         args.variant,
     ]
+    if args.tdm_wait_after_each_op:
+        cmd.append("--tdm_wait_after_each_op")
     print("Compiling:", " ".join(cmd), file=sys.stderr)
     subprocess.run(cmd, check=True, cwd=EXAMPLE_DIR, env=env)
 
@@ -185,6 +187,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--block_size_n", type=int, default=256)
     parser.add_argument("--comm_sms", type=int, default=64)
     parser.add_argument("--num_warps", type=int, default=8)
+    parser.add_argument(
+        "--tdm_wait_after_each_op",
+        action="store_true",
+        help="Pass --tdm_wait_after_each_op to example (stepwise/warp_specialized*)",
+    )
     parser.add_argument(
         "--sp3-from-cap",
         type=Path,

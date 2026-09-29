@@ -62,6 +62,12 @@ def parse_args():
         "warp_specialized_local_smem (warp_specialized with per-partition smem alloc), or "
         "warp_specialized_improved (no idle epilogue + sub-tile striping)",
     )
+    parser.add_argument(
+        "--tdm_wait_after_each_op",
+        action="store_true",
+        help="TDM stepwise/warp_specialized*: async_wait(0) after every store "
+        "(TransferBench-style), not only after the load and batched store group",
+    )
     return vars(parser.parse_args())
 
 
@@ -95,6 +101,7 @@ def main():
         "use_gluon": args["use_gluon"],
         "use_tdm": args["use_tdm"],
         "all_gather_tdm_variant": args["all_gather_tdm_variant"],
+        "tdm_wait_after_each_op": args["tdm_wait_after_each_op"],
     }
     if args["use_tdm"] and not args["use_gluon"]:
         raise ValueError("--use_tdm requires --use_gluon")

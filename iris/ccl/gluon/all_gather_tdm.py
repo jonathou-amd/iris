@@ -217,6 +217,7 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
     block_m: gl.constexpr,
     block_n: gl.constexpr,
     COMM_SMS: gl.constexpr,
+    wait_after_each: gl.constexpr,
 ):
     """
     All-gather via TDM: same structure as hoisted/Triton all-gather.
@@ -224,6 +225,9 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
     Outer loop: tile_id = pid, pid + COMM_SMS, ... (one load per tile per CTA).
     Inner loop: traffic-shaped stores to all ranks with a dynamically built
     output descriptor per destination (no world_size unroll cap).
+
+    If wait_after_each: async_wait(0) after every store (TransferBench-style).
+    Else: one async_wait(0) after the load and one after the store group.
     """
     pid = gl.program_id(0)
 
@@ -265,8 +269,11 @@ def persistent_all_gather_tdm_gfx1250_stepwise(
                 layout=smem_layout,
             )
             gfx1250_tdm.async_store(out_desc, [out_row_off, col_off], smem)
+            if wait_after_each:
+                gfx1250_tdm.async_wait(0)
 
-        gfx1250_tdm.async_wait(0)
+        if not wait_after_each:
+            gfx1250_tdm.async_wait(0)
 
 
 @gluon.jit
@@ -353,6 +360,7 @@ class _WarpSliceLocalArgs:
     block_n: gl.constexpr
     sub_block_m: gl.constexpr
     COMM_SMS: gl.constexpr
+    wait_after_each: gl.constexpr
 
     @gluon.constexpr_function
     def __init__(
@@ -366,6 +374,7 @@ class _WarpSliceLocalArgs:
         block_n,
         sub_block_m,
         COMM_SMS,
+        wait_after_each,
     ):
         self.input_ptr = input_ptr
         self.output_ptr = output_ptr
@@ -376,6 +385,7 @@ class _WarpSliceLocalArgs:
         self.block_n = gl.constexpr(block_n)
         self.sub_block_m = gl.constexpr(sub_block_m)
         self.COMM_SMS = gl.constexpr(COMM_SMS)
+        self.wait_after_each = gl.constexpr(wait_after_each)
 
 
 @gluon.jit
@@ -430,8 +440,11 @@ def _ag_warp_slice_loop_local_smem(
                 layout=smem_layout,
             )
             gfx1250_tdm.async_store(out_desc, [out_row_off, col_off], smem)
+            if args.wait_after_each:
+                gfx1250_tdm.async_wait(0)
 
-        gfx1250_tdm.async_wait(0)
+        if not args.wait_after_each:
+            gfx1250_tdm.async_wait(0)
 
 
 @gluon.jit
@@ -495,8 +508,11 @@ def _ag_warp_slice_loop_improved(
                 layout=smem_layout,
             )
             gfx1250_tdm.async_store(out_desc, [out_row_off, col_off], smem)
+            if args.wait_after_each:
+                gfx1250_tdm.async_wait(0)
 
-        gfx1250_tdm.async_wait(0)
+        if not args.wait_after_each:
+            gfx1250_tdm.async_wait(0)
 
 
 @gluon.jit
@@ -516,6 +532,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized_improved(
     block_n: gl.constexpr,
     num_slices: gl.constexpr,
     COMM_SMS: gl.constexpr,
+    wait_after_each: gl.constexpr,
 ):
     """warp_specialize + sub-tile striping (same dispatch as warp_specialized_local_smem)."""
     pid = gl.program_id(0)
@@ -534,6 +551,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized_improved(
         block_n,
         sub_block_m,
         COMM_SMS,
+        wait_after_each,
     )
 
     if num_slices == 1:
@@ -829,6 +847,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized_local_smem(
     block_n: gl.constexpr,
     num_slices: gl.constexpr,
     COMM_SMS: gl.constexpr,
+    wait_after_each: gl.constexpr,
 ):
     """
     warp_specialized variant: each worker allocates its own smem inside the
@@ -850,6 +869,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized_local_smem(
         block_n,
         sub_block_m,
         COMM_SMS,
+        wait_after_each,
     )
 
     if num_slices == 1:
@@ -1115,6 +1135,7 @@ class _WarpSliceArgs:
     block_n: gl.constexpr
     sub_block_m: gl.constexpr
     COMM_SMS: gl.constexpr
+    wait_after_each: gl.constexpr
 
     @gluon.constexpr_function
     def __init__(
@@ -1129,6 +1150,7 @@ class _WarpSliceArgs:
         block_n,
         sub_block_m,
         COMM_SMS,
+        wait_after_each,
     ):
         self.smem = smem
         self.input_desc = input_desc
@@ -1140,6 +1162,7 @@ class _WarpSliceArgs:
         self.block_n = gl.constexpr(block_n)
         self.sub_block_m = gl.constexpr(sub_block_m)
         self.COMM_SMS = gl.constexpr(COMM_SMS)
+        self.wait_after_each = gl.constexpr(wait_after_each)
 
 
 @gluon.jit
@@ -1185,8 +1208,11 @@ def _ag_warp_slice_loop(
                 layout=smem_layout,
             )
             gfx1250_tdm.async_store(out_desc, [out_row_off, col_off], smem_slice)
+            if args.wait_after_each:
+                gfx1250_tdm.async_wait(0)
 
-        gfx1250_tdm.async_wait(0)
+        if not args.wait_after_each:
+            gfx1250_tdm.async_wait(0)
 
 
 @gluon.jit
@@ -1206,6 +1232,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized(
     block_n: gl.constexpr,
     num_slices: gl.constexpr,
     COMM_SMS: gl.constexpr,
+    wait_after_each: gl.constexpr,
 ):
     """
     All-gather via warp_specialize: each row slice runs in a dedicated 1-warp worker
@@ -1240,6 +1267,7 @@ def persistent_all_gather_tdm_gfx1250_warp_specialized(
         block_n,
         sub_block_m,
         COMM_SMS,
+        wait_after_each,
     )
 
     if num_slices == 1:
@@ -1450,7 +1478,9 @@ def launch(
     if tdm_variant == "warp_team":
         launch_args.extend([config.num_warps, config.comm_sms])
     elif tdm_variant in ("warp_specialized", "warp_specialized_local_smem", "warp_specialized_improved"):
-        launch_args.extend([config.num_warps, config.comm_sms])
+        launch_args.extend([config.num_warps, config.comm_sms, config.tdm_wait_after_each_op])
+    elif tdm_variant == "stepwise":
+        launch_args.extend([config.comm_sms, config.tdm_wait_after_each_op])
     else:
         launch_args.append(config.comm_sms)
 
