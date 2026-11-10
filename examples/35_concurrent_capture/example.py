@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Capture driver: independent GEMM + all-gather via iris.concurrent.gemm.all_gather (default tritonblas GEMM)."""
+
 import argparse
 import os
 
@@ -54,16 +55,30 @@ def main():
     if a.gemm_block:
         kw["gemm_block"] = tuple(a.gemm_block)
     num_wgs = a.gemm_wgs + a.comm_wgs if a.mode == "fused" else None
-    C, dst = cg.all_gather(shmem, A, B, src, mode=a.mode, num_wgs=num_wgs, gemm_wgs=a.gemm_wgs, comm_wgs=a.comm_wgs,
-                  num_warps=a.num_warps, num_stages=a.num_stages, **kw)
+    C, dst = cg.all_gather(
+        shmem,
+        A,
+        B,
+        src,
+        mode=a.mode,
+        num_wgs=num_wgs,
+        gemm_wgs=a.gemm_wgs,
+        comm_wgs=a.comm_wgs,
+        num_warps=a.num_warps,
+        num_stages=a.num_stages,
+        **kw,
+    )
     torch.cuda.synchronize()
     shmem.barrier()
     if a.check:
         ref = A.cpu().float() @ B.cpu().float()
         err = (C.cpu().float() - ref).abs().max().item() / max(ref.abs().max().item(), 1e-6)
         r = shmem.get_rank()
-        own = True if a.mode == "gemm_only" else torch.equal(dst[r * a.comm_m:(r + 1) * a.comm_m].cpu(), src.cpu())
-        print(f"CHECK rank{r} backend={a.backend} gemm_rel_err={err:.3e} own_slice_ok={own} A_absmax={A.abs().max().item():.3f} B_absmax={B.abs().max().item():.3f} ref_absmax={ref.abs().max().item():.3f} src_absmax={src.abs().max().item():.3f}", flush=True)
+        own = True if a.mode == "gemm_only" else torch.equal(dst[r * a.comm_m : (r + 1) * a.comm_m].cpu(), src.cpu())
+        print(
+            f"CHECK rank{r} backend={a.backend} gemm_rel_err={err:.3e} own_slice_ok={own} A_absmax={A.abs().max().item():.3f} B_absmax={B.abs().max().item():.3f} ref_absmax={ref.abs().max().item():.3f} src_absmax={src.abs().max().item():.3f}",
+            flush=True,
+        )
     if dist.is_initialized():
         dist.barrier()
 

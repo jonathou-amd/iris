@@ -252,8 +252,8 @@ def all_gather(
         _gk.check_gluon_args(A, gemm_block, comm_block, num_warps)
         _g_comm = comm_wgs if comm_wgs is not None else max(1, cu_count // 8)
         _g_num = num_wgs if num_wgs is not None else cu_count
-        _g_gemm = gemm_wgs if gemm_wgs is not None else (
-            (_g_num * 3) // 4 if mode == "fused" else max(1, cu_count - _g_comm)
+        _g_gemm = (
+            gemm_wgs if gemm_wgs is not None else ((_g_num * 3) // 4 if mode == "fused" else max(1, cu_count - _g_comm))
         )
         return _gk.launch(
             mode, shmem, A, B, C, comm_src, comm_dst,
