@@ -101,3 +101,22 @@ These caps have not been replay-checked. If a replay faults on a peer address, t
 - `iris/concurrent/_tiles.py`: `_gemm_tile` and `_all_gather_tile`. The all-gather tile is the one that constructs `DeviceContext`.
 - `iris/host/iris.py`: JSON write in simulation, and `_build_device_context`.
 - `iris/mem/triton/context.py`: `DeviceContext.initialize` and `all_gather`.
+
+## Gluon backend (AM-decodable GEMM)
+
+`iris.concurrent.gemm.all_gather(..., backend="gluon")` runs the same three kernels (`ws_gemm`, `ws_all_gather`, `fused_ws_gemm_all_gather`) written in Gluon, in `iris/concurrent/_gluon_kernels.py`. `mode` also accepts `"gemm_only"`, which launches `ws_gemm` alone as a baseline with no all-gather traffic. The default backend is still Triton.
+
+Why: the Triton GEMM tile (`tl.dot`) compiles to `v_wmma_f32_16x16x32_f16` on gfx1260, which AM's SH decoder rejects. The Gluon GEMM uses WMMA version 4 at `[32, 64, 64]` through laneshared (`v_wmma_f32_32x64x64_f16`), which AM models. `tl.dot` has no switch to select that form, so the whole kernel has to be Gluon, including the all-gather tile (a `@triton.jit` kernel cannot call Gluon code).
+
+Constraints:
+
+- fp16 or bf16 only.
+- `num_warps` must be 4 (128 threads per workgroup). `LaneSharedLayout` asserts warps == NUM_WAVE_GROUPS (4).
+- The GEMM tile M must be a multiple of `32 * num_warps` (128), N a multiple of 64, K a multiple of 64. Shapes that do not divide the tile take a masked path.
+- The comm tile (default 8 x 256 elements) must be a multiple of `32 * num_warps` elements.
+- Work stealing uses `_grab()`: a lane-0 masked atomic plus a reduction. A scalar `ttgl.atomic_add` is per-thread and hangs FFM.
+- The fused kernel inlines each tile function exactly once (one two-stage loop). Two inlined copies of the GEMM tile with the all-M warp layout hang FFM.
+
+Layout and loop (see the kernel for detail): all four warps tile M, the accumulator is converted to a blocked layout for 16-byte C stores with no cache modifier, and the K loop prefetches the next tile before the current WMMA.
+
+Capture driver: `examples/35_concurrent_capture/example.py` (`--backend gluon --mode fused|concurrent|gemm_only --check`). Use `-k fused_ws_gemm_all_gather` for fused, `-k 'ws_gemm|ws_all_gather'` for concurrent, `-k ws_gemm` for gemm_only. `--check` compares C with a CPU matmul. Inputs come from a seeded host RNG because the FFM device RNG returns all ones. aqltoolkit's `-s` sanity pass does not know the new opcode: use `gummi_setup.py --skip-shader-sanity-checks`.

@@ -165,6 +165,7 @@ def all_gather(
     num_stages=2,
     num_warps=8,
     tune=False,
+    backend="triton",
 ):
     """Concurrent independent GEMM + all-gather.
 
@@ -189,6 +190,8 @@ def all_gather(
         tune: if ``True`` and ``gemm_wgs`` is unset, autotune ``gemm_wgs`` /
             ``gemm_block`` by benchmarking the top-k predicted configs
             (see :mod:`iris.concurrent.autotune`) and cache the winner.
+        backend: ``"triton"`` (tritonblas ``tl.dot``) or ``"gluon"`` (WMMA v4 [32,64,64] via laneshared,
+            the shape AM can decode; see :mod:`iris.concurrent._gluon_kernels`).
 
     Returns:
         ``(C, comm_dst)``.
@@ -240,6 +243,26 @@ def all_gather(
     counters = _counters(A.device)
     gemm_counter = counters[0:1]
     comm_counter = counters[1:2]
+
+    if backend == "gluon":
+        from . import _gluon_kernels as _gk
+
+        if mode not in ("fused", "concurrent", "gemm_only"):
+            raise ValueError(f"unknown mode {mode!r}; expected 'fused', 'concurrent' or 'gemm_only' (gluon)")
+        _gk.check_gluon_args(A, gemm_block, comm_block, num_warps)
+        _g_comm = comm_wgs if comm_wgs is not None else max(1, cu_count // 8)
+        _g_num = num_wgs if num_wgs is not None else cu_count
+        _g_gemm = gemm_wgs if gemm_wgs is not None else (
+            (_g_num * 3) // 4 if mode == "fused" else max(1, cu_count - _g_comm)
+        )
+        return _gk.launch(
+            mode, shmem, A, B, C, comm_src, comm_dst,
+            gemm_wgs=_g_gemm, comm_wgs=_g_comm, num_wgs=_g_num, gemm_block=gemm_block, comm_block=comm_block,
+            gemm_group_m=gemm_group_m, comm_group_m=comm_group_m, num_warps=num_warps, counters=counters,
+            streams=_streams(A.device),
+        )  # fmt: skip
+    if backend != "triton":
+        raise ValueError(f"unknown backend {backend!r}; expected 'triton' or 'gluon'")
 
     if mode == "fused":
         _num_wgs = num_wgs if num_wgs is not None else cu_count
